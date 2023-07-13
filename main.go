@@ -15,11 +15,13 @@ import (
 )
 
 func main() {
+	// Load environment variables, one way or another
 	err := godotenv.Load()
 	if err != nil {
 	  log.Fatal("Error loading .env file")
 	}
 
+	// Get tokens
 	appToken := os.Getenv("SLACK_APP_TOKEN")
 	if appToken == "" {
 		fmt.Fprintf(os.Stderr, "SLACK_APP_TOKEN must be set.\n")
@@ -56,6 +58,8 @@ func main() {
 	go func() {
 		for evt := range client.Events {
 			switch evt.Type {
+			case socketmode.EventTypeHello:
+				fmt.Println("Greetings!");
 			case socketmode.EventTypeConnecting:
 				fmt.Println("Connecting to Slack with Socket Mode...")
 			case socketmode.EventTypeConnectionError:
@@ -79,7 +83,7 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
+						_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
 						if err != nil {
 							fmt.Printf("failed posting message: %v", err)
 						}
@@ -90,6 +94,7 @@ func main() {
 					client.Debugf("unsupported Events API event received")
 				}
 			case socketmode.EventTypeInteractive:
+				// This is unused. Staying in for now to handle it.
 				callback, ok := evt.Data.(slack.InteractionCallback)
 				if !ok {
 					fmt.Printf("Ignored %+v\n", evt)
