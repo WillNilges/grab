@@ -83,9 +83,21 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
-						if err != nil {
-							fmt.Printf("failed posting message: %v", err)
+						if (strings.Contains(ev.Text, "echo")) {
+							_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Echo!!", false))
+							if err != nil {
+								fmt.Printf("failed posting message: %v", err)
+							}
+						} else if (strings.Contains(ev.Text, "page")) {
+							fmt.Println(ev.Text);
+							var split = strings.Split(ev.Text, "page ");
+							var pageTitle = split[len(split)-1];
+							fmt.Println(pageTitle);
+						} else {
+							_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
+							if err != nil {
+								fmt.Printf("failed posting message: %v", err)
+							}
 						}
 					case *slackevents.MemberJoinedChannelEvent:
 						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -94,7 +106,6 @@ func main() {
 					client.Debugf("unsupported Events API event received")
 				}
 			case socketmode.EventTypeInteractive:
-				// This is unused. Staying in for now to handle it.
 				callback, ok := evt.Data.(slack.InteractionCallback)
 				if !ok {
 					fmt.Printf("Ignored %+v\n", evt)
