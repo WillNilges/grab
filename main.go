@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"io/ioutil"
 
 	"github.com/slack-go/slack/socketmode"
 
@@ -12,14 +15,34 @@ import (
 	"github.com/slack-go/slack/slackevents"
 
 	"github.com/joho/godotenv"
+
+	"github.com/Nerzal/gocloak/v13"
 )
 
 func main() {
 	// Load environment variables, one way or another
 	err := godotenv.Load()
 	if err != nil {
-	  log.Fatal("Error loading .env file")
+		log.Fatal("Error loading .env file")
 	}
+
+	wikiUname := os.Getenv("WIKI_UNAME")
+	wikiPword := os.Getenv("WIKI_PWORD")
+	wikiClientID := os.Getenv("CLIENT_ID")
+	wikiClientSecret := os.Getenv("CLIENT_SECRET")
+
+	ssoClient := gocloak.NewClient("https://sso.csh.rit.edu/auth")
+	ctx := context.Background()
+	token, err := ssoClient.Login(ctx, wikiClientID, wikiClientSecret, "csh", wikiUname, wikiPword)
+	if token == nil {
+		fmt.Println("Oh fuck.")
+	}
+	if err != nil {
+		fmt.Println(err)
+		panic("Something wrong with the credentials or url")
+	}
+
+	// SLACK
 
 	// Get tokens
 	appToken := os.Getenv("SLACK_APP_TOKEN")
@@ -59,7 +82,7 @@ func main() {
 		for evt := range client.Events {
 			switch evt.Type {
 			case socketmode.EventTypeHello:
-				fmt.Println("Greetings!");
+				fmt.Println("Greetings!")
 			case socketmode.EventTypeConnecting:
 				fmt.Println("Connecting to Slack with Socket Mode...")
 			case socketmode.EventTypeConnectionError:
@@ -83,16 +106,16 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						if (strings.Contains(ev.Text, "echo")) {
+						if strings.Contains(ev.Text, "echo") {
 							_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Echo!!", false))
 							if err != nil {
 								fmt.Printf("failed posting message: %v", err)
 							}
-						} else if (strings.Contains(ev.Text, "page")) {
-							fmt.Println(ev.Text);
-							var split = strings.Split(ev.Text, "page ");
-							var pageTitle = split[len(split)-1];
-							fmt.Println(pageTitle);
+						} else if strings.Contains(ev.Text, "page") {
+							fmt.Println(ev.Text)
+							var split = strings.Split(ev.Text, "page ")
+							var pageTitle = split[len(split)-1]
+							fmt.Println(pageTitle)
 						} else {
 							_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
 							if err != nil {
