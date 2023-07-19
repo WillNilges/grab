@@ -36,61 +36,59 @@ func init() {
 	config.Username = os.Getenv("WIKI_UNAME")
 	config.Password = os.Getenv("WIKI_PWORD")
 	config.Domain = os.Getenv("WIKI_DOMAIN")
-	
+
 }
 
 func main() {
+	// ------- mediawiki --------
+	// Initialize a *Client with New(), specifying the wiki's API URL
+	// and your HTTP User-Agent. Try to use a meaningful User-Agent.
+	w, err := mwclient.New(config.WikiURL, "Grab")
+	if err != nil {
+		panic(err)
+	}
 
-// ------- mediawiki --------
-    // Initialize a *Client with New(), specifying the wiki's API URL
-    // and your HTTP User-Agent. Try to use a meaningful User-Agent.
-    w, err := mwclient.New(config.WikiURL, "Grab")
-    if err != nil {
-        panic(err)
-    }
+	// Log in.
+	err = w.Login(config.Username, config.Password)
+	if err != nil {
+		panic(err)
+	}
 
-    // Log in.
-    err = w.Login(config.Username, config.Password)
-    if err != nil {
-        panic(err)
-    }
+	// Specify parameters to send.
+	parameters := map[string]string{
+		"action":   "query",
+		"list":     "recentchanges",
+		"rclimit":  "2",
+		"rctype":   "edit",
+		"continue": "",
+	}
 
-    // Specify parameters to send.
-    parameters := map[string]string{
-        "action":   "query",
-        "list":     "recentchanges",
-        "rclimit":  "2",
-        "rctype":   "edit",
-        "continue": "",
-    }
+	// Make the request.
+	resp, err := w.Get(parameters)
+	if err != nil {
+		panic(err)
+	}
 
-    // Make the request.
-    resp, err := w.Get(parameters)
-    if err != nil {
-        panic(err)
-    }
-
-    // Print the *jason.Object
-    fmt.Println(resp)
-// end mediawiki
-
+	// Print the *jason.Object
+	fmt.Println(resp)
+	// end mediawiki
 
 	/*
-	wikiClientID := os.Getenv("CLIENT_ID")
-	wikiClientSecret := os.Getenv("CLIENT_SECRET")
+		wikiClientID := os.Getenv("CLIENT_ID")
+		wikiClientSecret := os.Getenv("CLIENT_SECRET")
 
-	wikiAPIKey := "8df869f3-0a75-4ba3-99b1-69c8e5664799"
+		wikiAPIKey := "8df869f3-0a75-4ba3-99b1-69c8e5664799"
 
-	ssoClient := gocloak.NewClient("https://sso.csh.rit.edu/auth")
-	ctx := context.Background()
-	token, err := ssoClient.Login(ctx, wikiClientID, wikiClientSecret, "csh", wikiUname, wikiPword)
-	if token == nil {
-		fmt.Println("Oh fuck.")
-	}
-	if err != nil {
-		fmt.Println(err)
-		panic("Something wrong with the credentials or url")
-	}*/
+		ssoClient := gocloak.NewClient("https://sso.csh.rit.edu/auth")
+		ctx := context.Background()
+		token, err := ssoClient.Login(ctx, wikiClientID, wikiClientSecret, "csh", wikiUname, wikiPword)
+		if token == nil {
+			fmt.Println("Oh fuck.")
+		}
+		if err != nil {
+			fmt.Println(err)
+			panic("Something wrong with the credentials or url")
+		}*/
 
 	// SLACK
 
@@ -171,6 +169,25 @@ func main() {
 							if err != nil {
 								fmt.Printf("failed posting message: %v", err)
 							}
+
+							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
+							// Get every message in the thread, and create a new wiki page with a transcription.
+
+							// Specify parameters to send.
+							parameters := map[string]string{
+								"action":   "edit",
+								"title": "This is grab",
+								"text": "Hello! I am grab!",
+							}
+
+							// Make the request.
+							err = w.Edit(parameters)
+							if err != nil {
+								panic(err)
+							}
+
+							// Print the *jason.Object
+							fmt.Println(resp)
 						}
 					case *slackevents.MemberJoinedChannelEvent:
 						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
