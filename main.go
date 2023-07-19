@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
-	"io/ioutil"
 
 	"github.com/slack-go/slack/socketmode"
 
@@ -16,20 +13,73 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/Nerzal/gocloak/v13"
+	"github.com/EricMCarroll/go-mwclient"
 )
 
-func main() {
+var config Config
+
+type Config struct {
+	WikiURL  string
+	Username string
+	Password string
+	Domain   string
+}
+
+func init() {
 	// Load environment variables, one way or another
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
 
-	wikiUname := os.Getenv("WIKI_UNAME")
-	wikiPword := os.Getenv("WIKI_PWORD")
+	config.WikiURL = os.Getenv("WIKI_URL")
+	config.Username = os.Getenv("WIKI_UNAME")
+	config.Password = os.Getenv("WIKI_PWORD")
+	config.Domain = os.Getenv("WIKI_DOMAIN")
+	
+}
+
+func main() {
+
+// ------- mediawiki --------
+    // Initialize a *Client with New(), specifying the wiki's API URL
+    // and your HTTP User-Agent. Try to use a meaningful User-Agent.
+    w, err := mwclient.New(config.WikiURL, "Grab")
+    if err != nil {
+        panic(err)
+    }
+
+    // Log in.
+    err = w.Login(config.Username, config.Password)
+    if err != nil {
+        panic(err)
+    }
+
+    // Specify parameters to send.
+    parameters := map[string]string{
+        "action":   "query",
+        "list":     "recentchanges",
+        "rclimit":  "2",
+        "rctype":   "edit",
+        "continue": "",
+    }
+
+    // Make the request.
+    resp, err := w.Get(parameters)
+    if err != nil {
+        panic(err)
+    }
+
+    // Print the *jason.Object
+    fmt.Println(resp)
+// end mediawiki
+
+
+	/*
 	wikiClientID := os.Getenv("CLIENT_ID")
 	wikiClientSecret := os.Getenv("CLIENT_SECRET")
+
+	wikiAPIKey := "8df869f3-0a75-4ba3-99b1-69c8e5664799"
 
 	ssoClient := gocloak.NewClient("https://sso.csh.rit.edu/auth")
 	ctx := context.Background()
@@ -40,7 +90,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 		panic("Something wrong with the credentials or url")
-	}
+	}*/
 
 	// SLACK
 

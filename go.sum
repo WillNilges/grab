@@ -1,5 +1,11 @@
+cgt.name/pkg/go-mwclient v1.2.0 h1:/ZMVH+wF62ITK0Uj1KnM1tPtE/AXYQabXe2cTA6JGSQ=
+cgt.name/pkg/go-mwclient v1.2.0/go.mod h1:sxgLqpaVbtOhM1KiAUPkkRdsE6au+E64Bq9a2GyAQdU=
+github.com/EricMCarroll/go-mwclient v0.0.0-20230408165329-d3a168291def h1:XOZ1YYSuMfMBtmgzD/MDqMIZUIUIxa5nYVg0phM/Lmk=
+github.com/EricMCarroll/go-mwclient v0.0.0-20230408165329-d3a168291def/go.mod h1:XRSLGwaQy/xiceXxn9Iwuk9G8iZnkPW4Ob5CimasBN8=
 github.com/Nerzal/gocloak/v13 v13.7.0 h1:rWZdXtGJarcdTp/XC+cHgAMhLUUYSugm4qnb/qHPyKw=
 github.com/Nerzal/gocloak/v13 v13.7.0/go.mod h1:rRBtEdh5N0+JlZZEsrfZcB2sRMZWbgSxI2EIv9jpJp4=
+github.com/antonholmquist/jason v1.0.0 h1:Ytg94Bcf1Bfi965K2q0s22mig/n4eGqEij/atENBhA0=
+github.com/antonholmquist/jason v1.0.0/go.mod h1:+GxMEKI0Va2U8h3os6oiUAetHAlGMvxjdpAH/9uvUMA=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-resty/resty/v2 v2.7.0 h1:me+K9p3uhSmXtrBZ4k9jcEAfJmuC8IivWHwaLZwPrFY=
@@ -12,11 +18,15 @@ github.com/gorilla/websocket v1.4.2 h1:+/TMaTYc4QFitKJxsQ7Yye35DkWvkdLcvGKqM+x0U
 github.com/gorilla/websocket v1.4.2/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
+github.com/mrjones/oauth v0.0.0-20190623134757-126b35219450 h1:j2kD3MT1z4PXCiUllUJF9mWUESr9TWKS7iEKsQ/IipM=
+github.com/mrjones/oauth v0.0.0-20190623134757-126b35219450/go.mod h1:skjdDftzkFALcuGzYSklqYd8gvat6F1gZJ4YPVbkZpM=
 github.com/opentracing/opentracing-go v1.2.0 h1:uEJPy/1a5RIPAJ0Ov+OIO8OxWu77jEv+1B0VhjKrZUs=
 github.com/opentracing/opentracing-go v1.2.0/go.mod h1:GxEUsuufX4nBwe+T+Wl9TAgYrxe9dPLANfrWvHYVTgc=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/sadbox/mediawiki v0.0.0-20170207211058-1e1eeee80435 h1:4dY3bxL8DUIoFeGKmqzZlfR5NJb6kg2/eYyDQKb4a9M=
+github.com/sadbox/mediawiki v0.0.0-20170207211058-1e1eeee80435/go.mod h1:8JricaylwhtH3i9mpBT52RsqvMJkZngXjWKOmS6XPPA=
 github.com/segmentio/ksuid v1.0.4 h1:sBo2BdShXjmcugAMwjugoGUdUV0pcxY5mW4xKRn3v4c=
 github.com/segmentio/ksuid v1.0.4/go.mod h1:/XUiZBD3kVx5SmUOl55voK5yeAbBNNIed+2O73XgrPE=
 github.com/slack-go/slack v0.12.2 h1:x3OppyMyGIbbiyFhsBmpf9pwkUzMhthJMRNmNlA4LaQ=
