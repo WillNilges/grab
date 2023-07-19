@@ -173,11 +173,46 @@ func main() {
 							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 							// Get every message in the thread, and create a new wiki page with a transcription.
 
+								// Set the options for the API call
+							params := slack.GetConversationRepliesParameters{
+								ChannelID: ev.Channel,
+								Timestamp: ev.ThreadTimeStamp,
+							}
+
+							// Get the conversation history
+							messages, _, _, err := api.GetConversationReplies(&params)
+							if err != nil {
+								fmt.Println("Oh fuck that's an error.")
+								fmt.Println(err)
+							}
+
+							// Print the messages in the conversation history
+							for _, message := range messages {
+								fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+							}
+
+							/*
+								messages, err := getConversationHistory(client, ev.Channel, ev.ThreadTimeStamp)
+								if err != nil {
+									fmt.Println("Error:", err)
+									return
+								}
+
+								// Print the messages in the conversation history
+								for _, message := range messages {
+									fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+								}
+							*/
+
+							// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
+
+							/*
+UNCOMMENT THIS SHIT
 							// Specify parameters to send.
 							parameters := map[string]string{
-								"action":   "edit",
-								"title": "This is grab",
-								"text": "Hello! I am grab!",
+								"action": "edit",
+								"title":  "This is grab",
+								"text":   "Hello! I am grab!",
 							}
 
 							// Make the request.
@@ -188,6 +223,7 @@ func main() {
 
 							// Print the *jason.Object
 							fmt.Println(resp)
+							*/	
 						}
 					case *slackevents.MemberJoinedChannelEvent:
 						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -262,3 +298,21 @@ func main() {
 
 	client.Run()
 }
+/*
+func getConversationHistory(client, channelID, threadTimestamp string) ([]slack.Message, error) {
+
+	// Set the options for the API call
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTimestamp,
+	}
+
+	// Get the conversation history
+	messages, _, _, err := client.GetConversationReplies(&params)
+	if err != nil {
+		return nil, err
+	}
+
+	return messages, nil
+}
+*/
