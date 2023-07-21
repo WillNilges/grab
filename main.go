@@ -134,7 +134,7 @@ func main() {
 							var pageTitle = split[len(split)-1]
 							fmt.Println(pageTitle)
 						} else {
-							_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
+							_, err := client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
 							if err != nil {
 								fmt.Printf("failed posting message: %v", err)
 							}
