@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"strings"
-	"encoding/json"
 
 	"github.com/slack-go/slack/socketmode"
 
@@ -26,6 +25,8 @@ type Config struct {
 	Domain   string
 }
 
+var w *mwclient.Client
+
 func init() {
 	// Load environment variables, one way or another
 	err := godotenv.Load()
@@ -33,18 +34,15 @@ func init() {
 		log.Fatal("Error loading .env file")
 	}
 
+	// ------- mediawiki --------
 	config.WikiURL = os.Getenv("WIKI_URL")
 	config.Username = os.Getenv("WIKI_UNAME")
 	config.Password = os.Getenv("WIKI_PWORD")
 	config.Domain = os.Getenv("WIKI_DOMAIN")
 
-}
-
-func main() {
-	// ------- mediawiki --------
 	// Initialize a *Client with New(), specifying the wiki's API URL
 	// and your HTTP User-Agent. Try to use a meaningful User-Agent.
-	w, err := mwclient.New(config.WikiURL, "Grab")
+	w, err = mwclient.New(config.WikiURL, "Grab")
 	if err != nil {
 		panic(err)
 	}
@@ -54,26 +52,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	// Specify parameters to send.
-	parameters := map[string]string{
-		"action":   "query",
-		"list":     "recentchanges",
-		"rclimit":  "2",
-		"rctype":   "edit",
-		"continue": "",
-	}
-
-	// Make the request.
-	resp, err := w.Get(parameters)
-	if err != nil {
-		panic(err)
-	}
-
-	// Print the *jason.Object
-	fmt.Println(resp)
 	// end mediawiki
+}
 
+func main() {
 	// SLACK
 	// Get tokens
 	appToken := os.Getenv("SLACK_APP_TOKEN")
@@ -170,27 +152,16 @@ func main() {
 							}
 
 							// Print the messages in the conversation history
+							var transcript []string
 							for _, message := range messages {
 								fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
-							}
-							
-							convo, _ := json.Marshal(messages)
-
-							// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
-							parameters := map[string]string{
-								"action": "edit",
-								"title":  string(messages[0].Msg.Text),
-								"text":   string(convo),
+								transcript = append(transcript, message.Text)
 							}
 
-							// Make the request.
-							err = w.Edit(parameters)
-							if err != nil {
-								panic(err)
-							}
+							// Take what was said and turn it into a paragraph
+							convo := strings.Join(transcript, "\n\n")
 
-							// Print the *jason.Object
-							fmt.Println(resp)
+							appendToWiki(string(messages[0].Msg.Text), string(messages[0].Msg.Text), convo)
 						}
 					case *slackevents.MemberJoinedChannelEvent:
 						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -266,3 +237,38 @@ func main() {
 	client.Run()
 }
 
+// Simply takes a title and a string, and puts it on the wiki, clobbering
+// whatever used to be there
+func publishToWiki(title string, convo string) {
+	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
+	parameters := map[string]string{
+		"action": "edit",
+		"title":  title,
+		"text":   convo,
+		"bot" : "true",
+	}
+
+	// Make the request.
+	err := w.Edit(parameters)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// The default behavior, to avoid accidental destructive use.
+func appendToWiki(title string, sectionTitle string, convo string) {
+	parameters := map[string]string{
+		"action": "edit",
+		"title": title,
+		"section":  "new",
+		"sectiontitle": sectionTitle,
+		"text":   convo,
+		"bot" : "true",
+	}
+
+	// Make the request.
+	err := w.Edit(parameters)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
