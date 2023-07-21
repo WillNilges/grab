@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/slack-go/slack/socketmode"
 
@@ -26,6 +27,8 @@ type Config struct {
 }
 
 var w *mwclient.Client
+var api *slack.Client
+var client *socketmode.Client
 
 func init() {
 	// Load environment variables, one way or another
@@ -53,9 +56,7 @@ func init() {
 		panic(err)
 	}
 	// end mediawiki
-}
 
-func main() {
 	// SLACK
 	// Get tokens
 	appToken := os.Getenv("SLACK_APP_TOKEN")
@@ -78,19 +79,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "SLACK_BOT_TOKEN must have the prefix \"xoxb-\".")
 	}
 
-	api := slack.New(
+	api = slack.New(
 		botToken,
 		slack.OptionDebug(true),
 		slack.OptionLog(log.New(os.Stdout, "api: ", log.Lshortfile|log.LstdFlags)),
 		slack.OptionAppLevelToken(appToken),
 	)
 
-	client := socketmode.New(
+	client = socketmode.New(
 		api,
 		socketmode.OptionDebug(true),
 		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
 	)
+	// end SLACK
+}
 
+func main() {
 	go func() {
 		for evt := range client.Events {
 			switch evt.Type {
@@ -158,10 +162,20 @@ func main() {
 								transcript = append(transcript, message.Text)
 							}
 
-							// Take what was said and turn it into a paragraph
-							convo := strings.Join(transcript, "\n\n")
+							// Remove gobbledygook
+							//transcript := sanitizeSlackConversation(transcript)
 
-							appendToWiki(string(messages[0].Msg.Text), string(messages[0].Msg.Text), convo)
+							generateTranscript(messages)
+
+							/*
+								// Take what was said and turn it into a paragraph
+								convo := strings.Join(transcript, "\n\n")
+
+								err := appendToWiki(string(messages[0].Msg.Text), string(messages[0].Msg.Text), convo)
+								if err != nil {
+									fmt.Println(err)
+								}
+							*/
 						}
 					case *slackevents.MemberJoinedChannelEvent:
 						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -245,7 +259,7 @@ func publishToWiki(title string, convo string) {
 		"action": "edit",
 		"title":  title,
 		"text":   convo,
-		"bot" : "true",
+		"bot":    "true",
 	}
 
 	// Make the request.
@@ -256,19 +270,52 @@ func publishToWiki(title string, convo string) {
 }
 
 // The default behavior, to avoid accidental destructive use.
-func appendToWiki(title string, sectionTitle string, convo string) {
+func appendToWiki(title string, sectionTitle string, convo string) error {
 	parameters := map[string]string{
-		"action": "edit",
-		"title": title,
-		"section":  "new",
+		"action":       "edit",
+		"title":        title,
+		"section":      "new",
 		"sectiontitle": sectionTitle,
-		"text":   convo,
-		"bot" : "true",
+		"text":         convo,
+		"bot":          "true",
 	}
 
 	// Make the request.
 	err := w.Edit(parameters)
+	return err
+}
+
+// Takes in a slack thread and...
+// Gets peoples' CSH usernames and makes them into page links (TODO)
+// Removes any mention of Grab (TODO)
+// Adds human readable timestamp to the top of the transcript (TODO)
+// Formats nicely
+// Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
+func generateTranscript(conversation []slack.Message) (transcript string) {
+	// Define the desired format layout
+	timeLayout := "2006-01-02 at 15:04"
+	currentTime := time.Now().Format(timeLayout)
+
+	// Remove any message sent by Grab
+	// Call the AuthTest method to check the authentication and retrieve the bot's user ID
+	authTestResponse, err := api.AuthTest()
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalf("Error calling AuthTest: %s", err)
 	}
+
+	// Print the bot's user ID
+	fmt.Printf("Current Time: %s\n", currentTime)
+	fmt.Printf("Bot UserID: %s\n", authTestResponse.UserID)
+
+	// Remove messages sent by Grab	and mentioning Grab
+	fmt.Printf("Looking for: <@%s>\n", authTestResponse.UserID)
+    var pureConversation []slack.Message
+    for _, message := range conversation {
+        if message.User != authTestResponse.UserID && !strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+            pureConversation = append(pureConversation, message)
+			fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+        }
+    }
+
+	return transcript
 }
