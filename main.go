@@ -134,11 +134,6 @@ func main() {
 							var pageTitle = split[len(split)-1]
 							fmt.Println(pageTitle)
 						} else {
-							_, err := client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Yes, hello.", false))
-							if err != nil {
-								fmt.Printf("failed posting message: %v", err)
-							}
-
 							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 							// Get every message in the thread, and create a new wiki page with a transcription.
 
@@ -156,26 +151,35 @@ func main() {
 							}
 
 							// Print the messages in the conversation history
-							var transcript []string
+							var title string
+							var transcript string 
+							/*
 							for _, message := range messages {
 								fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
 								transcript = append(transcript, message.Text)
 							}
+							*/
 
 							// Remove gobbledygook
 							//transcript := sanitizeSlackConversation(transcript)
 
-							generateTranscript(messages)
+							title, transcript = generateTranscript(messages)
 
-							/*
-								// Take what was said and turn it into a paragraph
-								convo := strings.Join(transcript, "\n\n")
+							fmt.Println(transcript)
 
-								err := appendToWiki(string(messages[0].Msg.Text), string(messages[0].Msg.Text), convo)
-								if err != nil {
-									fmt.Println(err)
-								}
-							*/
+							err = appendToWiki(title, title, transcript)
+							if err != nil {
+								fmt.Println(err)
+							}
+
+							baseResponse := "Article saved! You can find it posted at: "	
+							newArticleURL := getNewArticleURL(title)
+
+							// Post ephemeral message to user
+							_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+							if err != nil {
+								fmt.Printf("failed posting message: %v", err)
+							}
 						}
 					case *slackevents.MemberJoinedChannelEvent:
 						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -291,7 +295,7 @@ func appendToWiki(title string, sectionTitle string, convo string) error {
 // Adds human readable timestamp to the top of the transcript (TODO)
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-func generateTranscript(conversation []slack.Message) (transcript string) {
+func generateTranscript(conversation []slack.Message) (title string, transcript string) {
 	// Define the desired format layout
 	timeLayout := "2006-01-02 at 15:04"
 	currentTime := time.Now().Format(timeLayout)
@@ -317,5 +321,40 @@ func generateTranscript(conversation []slack.Message) (transcript string) {
         }
     }
 
-	return transcript
+	return pureConversation[0].Text, transcript
+}
+
+func getNewArticleURL(title string) (url string) {
+	newArticleParameters := map[string]string {
+		"action": "query",
+		"format": "json",
+		"titles": title,
+		"prop": "info",
+		"inprop": "url",
+	}
+
+	newArticle, err := w.Get(newArticleParameters)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(newArticle)
+
+	// canonicalURL, err := newArticle.GetString("query", "pages", "canonicalurl")
+
+	var canonicalURL string
+	pages, err := newArticle.GetObjectArray("query", "pages")
+	for _, page := range pages {
+		canonicalURL, err = page.GetString("canonicalurl")
+		break // Just get first one. There won't ever not be just one.
+	}
+
+	fmt.Println(canonicalURL)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return canonicalURL
 }
