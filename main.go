@@ -237,35 +237,31 @@ func main() {
 					// See https://api.slack.com/apis/connections/socket-implement#button
 					client.Debugf("CHOM!!! button clicked!")
 
-					action := callback.ActionID
-					if action == "button_click" {
-						// Respond to the button click
-						responseText := "Button was clicked!"
-
-						// Update the original message with the new content
-						updatedMessage := callback.OriginalMessage
-						updatedMessage.Blocks = slack.Blocks{
-							BlockSet: []slack.Block{
-								slack.NewSectionBlock(
-									slack.NewTextBlockObject("mrkdwn", responseText, false, false),
-									nil,
-									nil,
-								),
-							},
+					//action := callback.ActionID
+					if true {
+						// Replace the message with "CHOM!"
+						updatedMessage := slack.NewTextBlockObject("mrkdwn", "CHOM!", false, false)
+						updatedAttachment := slack.Attachment{
+							Blocks: slack.Blocks{BlockSet: []slack.Block{
+								slack.NewSectionBlock(updatedMessage, nil, nil),
+							}},
 						}
+						//client.Ack(*evt.Request)
 
-						// Send the updated message
-						/*api.UpdateMessage(&socketmode.Message{
-							EnvelopeID: callback.Request.EnvelopeID,
-							Channel:    callback.Channel.ID,
-							Text:       responseText,
-							Blocks:     updatedMessage.Blocks,
-						})*/
-						api.UpdateMessage(
-							updatedMessage.Channel,
-							updatedMessage.Timestamp,
-							slack.MsgOptionText("Chom", false),
+						// Get the channel and timestamp from the original message
+						channelID := callback.Channel.ID
+						messageTS := callback.Message.Timestamp
+
+						// Update the message in the channel
+						log.Println("WE'RE GONNA UPDATE")
+						_, _, _, err := api.UpdateMessage(
+							channelID, 
+							messageTS, 
+							slack.MsgOptionAttachments(updatedAttachment),
 						)
+						if err != nil {
+							log.Printf("Failed updating message: %v", err)
+						}
 					}
 					
 
