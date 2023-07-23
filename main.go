@@ -123,27 +123,31 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						if strings.Contains(ev.Text, "echo") {
-							_, _, err := client.PostMessage(ev.Channel, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Echo!!", false))
-							if err != nil {
-								fmt.Printf("failed posting message: %v", err)
-							}
-						} else if strings.Contains(ev.Text, "page") {
-							fmt.Println(ev.Text)
-							var split = strings.Split(ev.Text, "page ")
-							var pageTitle = split[len(split)-1]
-							fmt.Println(pageTitle)
-						} else {
+						commandMessage := strings.Split(ev.Text, " ")
+						var subCommand string
+						if len(commandMessage) >= 2 {
+							subCommand = commandMessage[1]
+						}
+						if strings.Contains(subCommand, "append") {
+						} else if strings.Contains(subCommand, "range") {
+						} else if strings.Contains(subCommand, "help") {
+						} else { // Default behavior
 							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 							// Get every message in the thread, and create a new wiki page with a transcription.
 
-							// Set the options for the API call
+							// Check if user provided a title
+							var possibleTitle string
+							if len(commandMessage) > 1 {
+								possibleTitle = strings.Join(commandMessage[1:], " ")
+							}
+
+							// Check if a page with the same title exists
+
+							// Get the conversation history
 							params := slack.GetConversationRepliesParameters{
 								ChannelID: ev.Channel,
 								Timestamp: ev.ThreadTimeStamp,
 							}
-
-							// Get the conversation history
 							messages, _, _, err := api.GetConversationReplies(&params)
 							if err != nil {
 								fmt.Println("Oh fuck that's an error.")
@@ -151,31 +155,35 @@ func main() {
 							}
 
 							// Print the messages in the conversation history
-							var title string
-							var transcript string 
-							/*
-							for _, message := range messages {
-								fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
-								transcript = append(transcript, message.Text)
+							var transcript string
+							if len(possibleTitle) > 0 {
+								_, transcript = generateTranscript(messages)
+							} else {
+								possibleTitle, transcript = generateTranscript(messages)
 							}
-							*/
 
-							// Remove gobbledygook
-							//transcript := sanitizeSlackConversation(transcript)
+							// Now that we have the final title, check if the article exists
+							newArticleURL, missing, err := getArticleURL(possibleTitle)
 
-							title, transcript = generateTranscript(messages)
+							if !missing {
+								// Scream at user
+								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( "A wiki article already exists!", false))
+								if err != nil {
+									fmt.Printf("failed posting message: %v", err)
+								}
+								break
+							}
 
-							fmt.Println(transcript)
-
-							fmt.Println("Chom")
-							err = appendToWiki(title, title, transcript)
+							err = publishToWiki(possibleTitle, transcript)
 							if err != nil {
 								fmt.Println(err)
 							}
-							fmt.Println("Skz")
 
 							baseResponse := "Article saved! You can find it posted at: "	
-							newArticleURL := getNewArticleURL(title)
+							newArticleURL, missing, err = getArticleURL(possibleTitle)
+							if err != nil {
+								fmt.Println(err)
+							}
 
 							// Post ephemeral message to user
 							_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
@@ -259,7 +267,7 @@ func main() {
 
 // Simply takes a title and a string, and puts it on the wiki, clobbering
 // whatever used to be there
-func publishToWiki(title string, convo string) {
+func publishToWiki(title string, convo string) (err error) {
 	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
 	parameters := map[string]string{
 		"action": "edit",
@@ -269,10 +277,11 @@ func publishToWiki(title string, convo string) {
 	}
 
 	// Make the request.
-	err := w.Edit(parameters)
+	err = w.Edit(parameters)
 	if err != nil {
-		panic(err)
+		return err	
 	}
+	return nil
 }
 
 // The default behavior, to avoid accidental destructive use.
@@ -333,7 +342,7 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 	return pureConversation[0].Text, transcript
 }
 
-func getNewArticleURL(title string) (url string) {
+func getArticleURL(title string) (url string, missing bool, err error) {
 	newArticleParameters := map[string]string {
 		"action": "query",
 		"format": "json",
@@ -344,26 +353,22 @@ func getNewArticleURL(title string) (url string) {
 
 	newArticle, err := w.Get(newArticleParameters)
 
-	if err != nil {
-		fmt.Println(err)
-	}
-
 	fmt.Println(newArticle)
 
-	// canonicalURL, err := newArticle.GetString("query", "pages", "canonicalurl")
+	if err != nil {
+		return "", false, err
+	}
 
-	var canonicalURL string
 	pages, err := newArticle.GetObjectArray("query", "pages")
 	for _, page := range pages {
-		canonicalURL, err = page.GetString("canonicalurl")
+		url, err = page.GetString("canonicalurl")
+		missing, _ = page.GetBoolean("missing")
 		break // Just get first one. There won't ever not be just one.
 	}
 
-	fmt.Println(canonicalURL)
-
 	if err != nil {
-		fmt.Println(err)
+		return "", false, err
 	}
 
-	return canonicalURL
+	return url, missing, nil
 }
