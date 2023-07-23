@@ -47,12 +47,14 @@ func init() {
 	// and your HTTP User-Agent. Try to use a meaningful User-Agent.
 	w, err = mwclient.New(config.WikiURL, "Grab")
 	if err != nil {
+		fmt.Println("Could not create MediaWiki Client instance.")
 		panic(err)
 	}
 
 	// Log in.
 	err = w.Login(config.Username, config.Password)
 	if err != nil {
+		fmt.Println("Could not log into MediaWiki instance.")
 		panic(err)
 	}
 	// end mediawiki
@@ -131,6 +133,27 @@ func main() {
 						if strings.Contains(subCommand, "append") {
 						} else if strings.Contains(subCommand, "range") {
 						} else if strings.Contains(subCommand, "help") {
+							// Respond with a message containing a button using Block Kit
+							blockMsg := slack.MsgOptionBlocks(
+								slack.NewSectionBlock(
+									slack.NewTextBlockObject("mrkdwn", "Click the button:", false, false),
+									nil,
+									nil,
+								),
+								slack.NewActionBlock(
+									"",
+									slack.NewButtonBlockElement(
+										"button_click",
+										"Click Me!",
+										slack.NewTextBlockObject("plain_text", "Click Me!", false, false),
+									),
+								),
+							)
+
+							_, _, err := api.PostMessage(ev.Channel, blockMsg)
+							if err != nil {
+								log.Printf("Failed to send message: %v", err)
+							}
 						} else { // Default behavior
 							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 							// Get every message in the thread, and create a new wiki page with a transcription.
@@ -212,8 +235,40 @@ func main() {
 				switch callback.Type {
 				case slack.InteractionTypeBlockActions:
 					// See https://api.slack.com/apis/connections/socket-implement#button
+					client.Debugf("CHOM!!! button clicked!")
 
-					client.Debugf("button clicked!")
+					action := callback.ActionID
+					if action == "button_click" {
+						// Respond to the button click
+						responseText := "Button was clicked!"
+
+						// Update the original message with the new content
+						updatedMessage := callback.OriginalMessage
+						updatedMessage.Blocks = slack.Blocks{
+							BlockSet: []slack.Block{
+								slack.NewSectionBlock(
+									slack.NewTextBlockObject("mrkdwn", responseText, false, false),
+									nil,
+									nil,
+								),
+							},
+						}
+
+						// Send the updated message
+						/*api.UpdateMessage(&socketmode.Message{
+							EnvelopeID: callback.Request.EnvelopeID,
+							Channel:    callback.Channel.ID,
+							Text:       responseText,
+							Blocks:     updatedMessage.Blocks,
+						})*/
+						api.UpdateMessage(
+							updatedMessage.Channel,
+							updatedMessage.Timestamp,
+							slack.MsgOptionText("Chom", false),
+						)
+					}
+					
+
 				case slack.InteractionTypeShortcut:
 				case slack.InteractionTypeViewSubmission:
 					// See https://api.slack.com/apis/connections/socket-implement#modal
