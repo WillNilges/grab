@@ -167,10 +167,12 @@ func main() {
 
 							fmt.Println(transcript)
 
+							fmt.Println("Chom")
 							err = appendToWiki(title, title, transcript)
 							if err != nil {
 								fmt.Println(err)
 							}
+							fmt.Println("Skz")
 
 							baseResponse := "Article saved! You can find it posted at: "	
 							newArticleURL := getNewArticleURL(title)
@@ -280,9 +282,11 @@ func appendToWiki(title string, sectionTitle string, convo string) error {
 		"title":        title,
 		"section":      "new",
 		"sectiontitle": sectionTitle,
-		"text":         convo,
+		"appendtext":   convo,
 		"bot":          "true",
 	}
+
+	fmt.Println(parameters)
 
 	// Make the request.
 	err := w.Edit(parameters)
@@ -300,6 +304,8 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 	timeLayout := "2006-01-02 at 15:04"
 	currentTime := time.Now().Format(timeLayout)
 
+	transcript += "Conversation begins at " + currentTime + "\n\n"
+
 	// Remove any message sent by Grab
 	// Call the AuthTest method to check the authentication and retrieve the bot's user ID
 	authTestResponse, err := api.AuthTest()
@@ -312,14 +318,17 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 	fmt.Printf("Bot UserID: %s\n", authTestResponse.UserID)
 
 	// Remove messages sent by Grab	and mentioning Grab
+	// Format conversation into string line-by-line
 	fmt.Printf("Looking for: <@%s>\n", authTestResponse.UserID)
     var pureConversation []slack.Message
     for _, message := range conversation {
         if message.User != authTestResponse.UserID && !strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
             pureConversation = append(pureConversation, message)
+			transcript += message.User + ": " + message.Text + "\n\n"
 			fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
         }
     }
+
 
 	return pureConversation[0].Text, transcript
 }
