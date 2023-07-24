@@ -141,11 +141,11 @@ func main() {
 									nil,
 								),
 								slack.NewActionBlock(
-									"button_click",
+									"",
 									slack.NewButtonBlockElement(
-										"button_click",
-										"Click Me!",
-										slack.NewTextBlockObject("plain_text", "Click Me!", false, false),
+										"confirm_wiki_page_overwrite",
+										"CONFIRM",
+										slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
 									),
 								),
 							)
@@ -235,9 +235,8 @@ func main() {
 				switch callback.Type {
 				case slack.InteractionTypeBlockActions:
 					// See https://api.slack.com/apis/connections/socket-implement#button
-
 					action := callback.ActionCallback.BlockActions[0]
-					if action.ActionID == "button_click" {
+					if action.ActionID == "confirm_wiki_page_overwrite" {
 						client.Ack(*evt.Request)
 
 						// First, delete the old message (fuck you too, slack)
@@ -250,6 +249,7 @@ func main() {
 						}
 					} else {
 						log.Printf("Unexpected Action Occured: %s.\n", action.ActionID, callback.BlockID)
+						log.Println(action)
 					}
 					
 
