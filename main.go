@@ -200,32 +200,15 @@ func main() {
 									),
 								)
 
-								_, err := api.PostEphemeral(
-									ev.Channel, 
+								_, _, err = api.PostMessage(
 									ev.User, 
-									slack.MsgOptionTS(ev.ThreadTimeStamp), 
 									blockMsg,
 								)
 								if err != nil {
 									log.Printf("Failed to send message: %v", err)
 								}
 							} else {
-								err = publishToWiki(possibleTitle, transcript)
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								baseResponse := "Article saved! You can find it posted at: "	
-								newArticleURL, missing, err = getArticleURL(possibleTitle)
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								// Post ephemeral message to user
-								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
-								if err != nil {
-									fmt.Printf("failed posting message: %v", err)
-								}
+								baseGrab(possibleTitle, transcript, ev)
 							}
 						}
 					case *slackevents.MemberJoinedChannelEvent:
@@ -276,6 +259,29 @@ func main() {
 	}()
 
 	client.Run()
+}
+
+// Basic grab functionality
+func baseGrab(title string, transcript string, ev *slackevents.AppMentionEvent) (err error) {
+	err = publishToWiki(title, transcript)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	baseResponse := "Article saved! You can find it posted at: "	
+	newArticleURL, _, err := getArticleURL(title)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	// Post ephemeral message to user
+	_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+	if err != nil {
+		fmt.Printf("failed posting message: %v", err)
+		return err
+	}
+	return nil
 }
 
 // Simply takes a title and a string, and puts it on the wiki, clobbering
