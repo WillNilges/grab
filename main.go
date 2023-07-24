@@ -133,27 +133,7 @@ func main() {
 						if strings.Contains(subCommand, "append") {
 						} else if strings.Contains(subCommand, "range") {
 						} else if strings.Contains(subCommand, "help") {
-							// Respond with a message containing a button using Block Kit
-							blockMsg := slack.MsgOptionBlocks(
-								slack.NewSectionBlock(
-									slack.NewTextBlockObject("mrkdwn", "Click the button:", false, false),
-									nil,
-									nil,
-								),
-								slack.NewActionBlock(
-									"",
-									slack.NewButtonBlockElement(
-										"confirm_wiki_page_overwrite",
-										"CONFIRM",
-										slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
-									),
-								),
-							)
-
-							_, _, err := api.PostMessage(ev.Channel, blockMsg)
-							if err != nil {
-								log.Printf("Failed to send message: %v", err)
-							}
+							
 						} else { // Default behavior
 							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 							// Get every message in the thread, and create a new wiki page with a transcription.
@@ -190,28 +170,62 @@ func main() {
 
 							if !missing {
 								// Scream at user
-								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( "A wiki article already exists!", false))
+								/*_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( "A wiki article already exists!", false))
 								if err != nil {
 									fmt.Printf("failed posting message: %v", err)
 								}
-								break
-							}
+								break*/
 
-							err = publishToWiki(possibleTitle, transcript)
-							if err != nil {
-								fmt.Println(err)
-							}
+								// Create a block kit message to ask the user
+								// if they _really_ want to overwrite the page
+								warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
+								blockMsg := slack.MsgOptionBlocks(
+									slack.NewSectionBlock(
+										slack.NewTextBlockObject(
+											"mrkdwn",
+											warningMessage, 
+											false,
+											false,
+										),
+										nil,
+										nil,
+									),
+									slack.NewActionBlock(
+										"",
+										slack.NewButtonBlockElement(
+											"confirm_wiki_page_overwrite",
+											"CONFIRM",
+											slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+										),
+									),
+								)
 
-							baseResponse := "Article saved! You can find it posted at: "	
-							newArticleURL, missing, err = getArticleURL(possibleTitle)
-							if err != nil {
-								fmt.Println(err)
-							}
+								_, err := api.PostEphemeral(
+									ev.Channel, 
+									ev.User, 
+									slack.MsgOptionTS(ev.ThreadTimeStamp), 
+									blockMsg,
+								)
+								if err != nil {
+									log.Printf("Failed to send message: %v", err)
+								}
+							} else {
+								err = publishToWiki(possibleTitle, transcript)
+								if err != nil {
+									fmt.Println(err)
+								}
 
-							// Post ephemeral message to user
-							_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
-							if err != nil {
-								fmt.Printf("failed posting message: %v", err)
+								baseResponse := "Article saved! You can find it posted at: "	
+								newArticleURL, missing, err = getArticleURL(possibleTitle)
+								if err != nil {
+									fmt.Println(err)
+								}
+
+								// Post ephemeral message to user
+								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+								if err != nil {
+									fmt.Printf("failed posting message: %v", err)
+								}
 							}
 						}
 					case *slackevents.MemberJoinedChannelEvent:
@@ -235,63 +249,23 @@ func main() {
 				switch callback.Type {
 				case slack.InteractionTypeBlockActions:
 					// See https://api.slack.com/apis/connections/socket-implement#button
-					action := callback.ActionCallback.BlockActions[0]
-					if action.ActionID == "confirm_wiki_page_overwrite" {
+					actionID := callback.ActionCallback.BlockActions[0].ActionID
+					if actionID == "confirm_wiki_page_overwrite" {
 						client.Ack(*evt.Request)
 
 						// First, delete the old message (fuck you too, slack)
 						api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
 						
-						_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.Message.ThreadTimestamp), slack.MsgOptionText("Eat my whole dick", false))
+						_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.OriginalMessage.ThreadTimestamp), slack.MsgOptionText("I will save it if you implement that function ;)", false))
 
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
 						}
 					} else {
-						log.Printf("Unexpected Action Occured: %s.\n", action.ActionID, callback.BlockID)
-						log.Println(action)
+						log.Printf("Unexpected Action Occured: %s.\n", actionID, callback.BlockID)
 					}
-					
-
-				case slack.InteractionTypeShortcut:
-				case slack.InteractionTypeViewSubmission:
-					// See https://api.slack.com/apis/connections/socket-implement#modal
-				case slack.InteractionTypeDialogSubmission:
 				default:
 
-				}
-
-				client.Ack(*evt.Request, payload)
-			case socketmode.EventTypeSlashCommand:
-				cmd, ok := evt.Data.(slack.SlashCommand)
-				if !ok {
-					fmt.Printf("Ignored %+v\n", evt)
-
-					continue
-				}
-
-				client.Debugf("Slash command received: %+v", cmd)
-
-				payload := map[string]interface{}{
-					"blocks": []slack.Block{
-						slack.NewSectionBlock(
-							&slack.TextBlockObject{
-								Type: slack.MarkdownType,
-								Text: "foo",
-							},
-							nil,
-							slack.NewAccessory(
-								slack.NewButtonBlockElement(
-									"",
-									"somevalue",
-									&slack.TextBlockObject{
-										Type: slack.PlainTextType,
-										Text: "bar",
-									},
-								),
-							),
-						),
-					},
 				}
 
 				client.Ack(*evt.Request, payload)
@@ -392,6 +366,7 @@ func getArticleURL(title string) (url string, missing bool, err error) {
 
 	newArticle, err := w.Get(newArticleParameters)
 
+	fmt.Println("CHECKING FOR ARTICLE")
 	fmt.Println(newArticle)
 
 	if err != nil {
