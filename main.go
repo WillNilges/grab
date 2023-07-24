@@ -240,14 +240,21 @@ func main() {
 					//action := callback.ActionID
 					if true {
 						// Replace the message with "CHOM!"
-						updatedMessage := slack.NewTextBlockObject("mrkdwn", "CHOM!", false, false)
-						updatedAttachment := slack.Attachment{
+						//updatedMessage := slack.NewTextBlockObject("mrkdwn", "CHOM!", false, false)
+						/*updatedAttachment := slack.Attachment{
 							Blocks: slack.Blocks{BlockSet: []slack.Block{
 								slack.NewSectionBlock(updatedMessage, nil, nil),
 							}},
-						}
-						//client.Ack(*evt.Request)
+						}*/
+						client.Ack(*evt.Request)
 
+						// First, delete the old message (fuck you too, slack)
+						api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
+
+						
+						_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.Message.ThreadTimestamp), slack.MsgOptionText("Eat my whole dick", false))
+
+						/*
 						// Get the channel and timestamp from the original message
 						channelID := callback.Channel.ID
 						messageTS := callback.Message.Timestamp
@@ -259,6 +266,9 @@ func main() {
 							messageTS, 
 							slack.MsgOptionAttachments(updatedAttachment),
 						)
+						if err != nil {
+							log.Printf("Failed updating message: %v", err)
+						}*/
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
 						}
