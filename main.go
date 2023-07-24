@@ -141,7 +141,7 @@ func main() {
 									nil,
 								),
 								slack.NewActionBlock(
-									"",
+									"button_click",
 									slack.NewButtonBlockElement(
 										"button_click",
 										"Click Me!",
@@ -235,43 +235,21 @@ func main() {
 				switch callback.Type {
 				case slack.InteractionTypeBlockActions:
 					// See https://api.slack.com/apis/connections/socket-implement#button
-					client.Debugf("CHOM!!! button clicked!")
 
-					//action := callback.ActionID
-					if true {
-						// Replace the message with "CHOM!"
-						//updatedMessage := slack.NewTextBlockObject("mrkdwn", "CHOM!", false, false)
-						/*updatedAttachment := slack.Attachment{
-							Blocks: slack.Blocks{BlockSet: []slack.Block{
-								slack.NewSectionBlock(updatedMessage, nil, nil),
-							}},
-						}*/
+					action := callback.ActionCallback.BlockActions[0]
+					if action.ActionID == "button_click" {
 						client.Ack(*evt.Request)
 
 						// First, delete the old message (fuck you too, slack)
 						api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
-
 						
 						_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.Message.ThreadTimestamp), slack.MsgOptionText("Eat my whole dick", false))
 
-						/*
-						// Get the channel and timestamp from the original message
-						channelID := callback.Channel.ID
-						messageTS := callback.Message.Timestamp
-
-						// Update the message in the channel
-						log.Println("WE'RE GONNA UPDATE")
-						_, _, _, err := api.UpdateMessage(
-							channelID, 
-							messageTS, 
-							slack.MsgOptionAttachments(updatedAttachment),
-						)
-						if err != nil {
-							log.Printf("Failed updating message: %v", err)
-						}*/
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
 						}
+					} else {
+						log.Printf("Unexpected Action Occured: %s.\n", action.ActionID, callback.BlockID)
 					}
 					
 
