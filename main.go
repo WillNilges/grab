@@ -113,14 +113,10 @@ func main() {
 				eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 				if !ok {
 					fmt.Printf("Ignored %+v\n", evt)
-
 					continue
 				}
-
 				fmt.Printf("Event received: %+v\n", eventsAPIEvent)
-
 				client.Ack(*evt.Request)
-
 				switch eventsAPIEvent.Type {
 				case slackevents.CallbackEvent:
 					innerEvent := eventsAPIEvent.InnerEvent
@@ -167,9 +163,16 @@ func main() {
 							// Now that we have the final title, check if the article exists
 							newArticleURL, missing, err := getArticleURL(possibleTitle)
 
+							// If there is an existing article with that title
 							if !missing {
 								// Ask user if they _really_ want to overwrite the page
 								warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
+								confirmButton := slack.NewButtonBlockElement(
+											"confirm_wiki_page_overwrite",
+											"CONFIRM",
+											slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+										)
+								confirmButton.Style = "danger"
 								blockMsg := slack.MsgOptionBlocks(
 									slack.NewSectionBlock(
 										slack.NewTextBlockObject(
@@ -183,10 +186,11 @@ func main() {
 									),
 									slack.NewActionBlock(
 										"",
+										confirmButton,
 										slack.NewButtonBlockElement(
-											"confirm_wiki_page_overwrite",
-											"CONFIRM",
-											slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+											"cancel_wiki_page_overwrite",
+											"CANCEL",
+											slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
 										),
 									),
 								)
@@ -199,13 +203,28 @@ func main() {
 								if err != nil {
 									log.Printf("Failed to send message: %v", err)
 								}
-
 							} else {
-								baseGrab(possibleTitle, transcript, ev)
+								// If there is no article with that title, then
+								// go ahead and publish it, then send the user
+								// an ephemeral message of success
+								err = publishToWiki(false, possibleTitle, "", transcript)
+								if err != nil {
+									fmt.Println(err)
+								}
+
+								baseResponse := "Article saved! You can find it posted at: "	
+								newArticleURL, _, err := getArticleURL(possibleTitle)
+								if err != nil {
+									fmt.Println(err)
+								}
+
+								// Post ephemeral message to user
+								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+								if err != nil {
+									fmt.Printf("failed posting message: %v", err)
+								}
 							}
 						}
-					case *slackevents.MemberJoinedChannelEvent:
-						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
 					}
 				default:
 					client.Debugf("unsupported Events API event received")
@@ -214,7 +233,6 @@ func main() {
 				callback, ok := evt.Data.(slack.InteractionCallback)
 				if !ok {
 					fmt.Printf("Ignored %+v\n", evt)
-
 					continue
 				}
 
@@ -257,16 +275,25 @@ func main() {
 						}
 
 						// Save the transcript to the wiki
-						err = publishToWiki(possibleTitle, transcript)
+						err = publishToWiki(false, possibleTitle, "", transcript)
 						if err != nil {
 							fmt.Println(err)
 						}
 
 						// Update the ephemeral message
 						newArticleURL, _, err := getArticleURL(possibleTitle)
-						responseData := fmt.Sprintf(`{"replace_original": "true", "text": "Article saved! You can find it posted at: %s", "thread_ts": "%d"}`, newArticleURL, callback.Container.ThreadTs)
+						responseData := fmt.Sprintf(`{"replace_original": "true", "thread_ts": "%d", "text": "Article saved! You can find it posted at: %s"}`, callback.Container.ThreadTs, newArticleURL)
 						reader := strings.NewReader(responseData)
 						_, err = http.Post(callback.ResponseURL, "application/json", reader)	
+
+						if err != nil {
+							log.Printf("Failed updating message: %v", err)
+						}
+					} else if actionID == "cancel_wiki_page_overwrite" {
+						// Update the ephemeral message
+						responseData := fmt.Sprintf(`{"replace_original": "true", "thread_ts": "%d", "text": "Grab request cancelled."}`, callback.Container.ThreadTs)
+						reader := strings.NewReader(responseData)
+						_, err := http.Post(callback.ResponseURL, "application/json", reader)	
 
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
@@ -288,64 +315,31 @@ func main() {
 	client.Run()
 }
 
-// Basic grab functionality. This is the function that runs when you just @grab
-func baseGrab(title string, transcript string, ev *slackevents.AppMentionEvent) (err error) {
-	err = publishToWiki(title, transcript)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	baseResponse := "Article saved! You can find it posted at: "	
-	newArticleURL, _, err := getArticleURL(title)
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
-
-	// Post ephemeral message to user
-	_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
-	if err != nil {
-		fmt.Printf("failed posting message: %v", err)
-		return err
-	}
-	return nil
-}
-
-// Simply takes a title and a string, and puts it on the wiki, clobbering
-// whatever used to be there
-func publishToWiki(title string, convo string) (err error) {
+// Helper function for putting things on the wiki. Can easily control how content
+// gets published by setting or removing variables
+func publishToWiki(append bool, title string, sectionTitle string, convo string) (err error) {
 	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
 	parameters := map[string]string{
 		"action": "edit",
 		"title":  title,
 		"text":   convo,
 		"bot":    "true",
+		"summary": "Grab publishToWiki",
+	}
+
+	if sectionTitle != "" {
+		parameters["section"] = "new"
+		parameters["sectionTitle"] = sectionTitle 
+	}
+
+	if append {
+		delete(parameters, "text")
+		parameters["appendtext"] = convo
+		parameters["summary"] = fmt.Sprintf("Grab publishToWiki append section %s", sectionTitle)
 	}
 
 	// Make the request.
-	err = w.Edit(parameters)
-	if err != nil {
-		return err	
-	}
-	return nil
-}
-
-// The default behavior, to avoid accidental destructive use.
-func appendToWiki(title string, sectionTitle string, convo string) error {
-	parameters := map[string]string{
-		"action":       "edit",
-		"title":        title,
-		"section":      "new",
-		"sectiontitle": sectionTitle,
-		"appendtext":   convo,
-		"bot":          "true",
-	}
-
-	fmt.Println(parameters)
-
-	// Make the request.
-	err := w.Edit(parameters)
-	return err
+	return w.Edit(parameters)
 }
 
 // Takes in a slack thread and...
