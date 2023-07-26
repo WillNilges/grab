@@ -145,8 +145,6 @@ func main() {
 								possibleTitle = strings.Join(commandMessage[1:], " ")
 							}
 
-							// Check if a page with the same title exists
-
 							// Get the conversation history
 							params := slack.GetConversationRepliesParameters{
 								ChannelID: ev.Channel,
@@ -170,15 +168,7 @@ func main() {
 							newArticleURL, missing, err := getArticleURL(possibleTitle)
 
 							if !missing {
-								// Scream at user
-								/*_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( "A wiki article already exists!", false))
-								if err != nil {
-									fmt.Printf("failed posting message: %v", err)
-								}
-								break*/
-
-								// Create a block kit message to ask the user
-								// if they _really_ want to overwrite the page
+								// Ask user if they _really_ want to overwrite the page
 								warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
 								blockMsg := slack.MsgOptionBlocks(
 									slack.NewSectionBlock(
@@ -200,7 +190,6 @@ func main() {
 										),
 									),
 								)
-
 								_, err := api.PostEphemeral(
 									ev.Channel, 
 									ev.User, 
@@ -210,23 +199,9 @@ func main() {
 								if err != nil {
 									log.Printf("Failed to send message: %v", err)
 								}
+
 							} else {
-								err = publishToWiki(possibleTitle, transcript)
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								baseResponse := "Article saved! You can find it posted at: "	
-								newArticleURL, missing, err = getArticleURL(possibleTitle)
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								// Post ephemeral message to user
-								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
-								if err != nil {
-									fmt.Printf("failed posting message: %v", err)
-								}
+								baseGrab(possibleTitle, transcript, ev)
 							}
 						}
 					case *slackevents.MemberJoinedChannelEvent:
@@ -253,16 +228,45 @@ func main() {
 					actionID := callback.ActionCallback.BlockActions[0].ActionID
 					if actionID == "confirm_wiki_page_overwrite" {
 						client.Ack(*evt.Request)
-						responseData := fmt.Sprintf(`{"replace_original": "true", "text": "OK! Will do!", "thread_ts": "%d"}`, callback.Container.ThreadTs)
-						reader := strings.NewReader(responseData)
-						response, err := http.Post(callback.ResponseURL, "application/json", reader)	
-						//slack.MsgOptionTS(ev.ThreadTimeStamp)
-
-						fmt.Println(response)
-						// First, delete the old message (fuck you too, slack)
-						//api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
 						
-						//_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.OriginalMessage.ThreadTimestamp), slack.MsgOptionText("I will save it if you implement that function ;)", false))
+						// Get the conversation history
+						params := slack.GetConversationRepliesParameters{
+							ChannelID: callback.Container.ChannelID,
+							Timestamp: callback.Container.ThreadTs,
+						}
+						messages, _, _, err := api.GetConversationReplies(&params)
+						if err != nil {
+							fmt.Println("Oh fuck that's an error.")
+							fmt.Println(err)
+						}
+
+						// Theoretically, the last message in the convo should have the title,
+						// if any was submitted
+						commandMessage := strings.Split(messages[len(messages)-1].Text, " ")
+						var possibleTitle string
+						if len(commandMessage) > 1 {
+							possibleTitle = strings.Join(commandMessage[1:], " ")
+						}
+
+						// Print the messages in the conversation history
+						var transcript string
+						if len(possibleTitle) > 0 {
+							_, transcript = generateTranscript(messages)
+						} else {
+							possibleTitle, transcript = generateTranscript(messages)
+						}
+
+						// Save the transcript to the wiki
+						err = publishToWiki(possibleTitle, transcript)
+						if err != nil {
+							fmt.Println(err)
+						}
+
+						// Update the ephemeral message
+						newArticleURL, _, err := getArticleURL(possibleTitle)
+						responseData := fmt.Sprintf(`{"replace_original": "true", "text": "Article saved! You can find it posted at: %s", "thread_ts": "%d"}`, newArticleURL, callback.Container.ThreadTs)
+						reader := strings.NewReader(responseData)
+						_, err = http.Post(callback.ResponseURL, "application/json", reader)	
 
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
@@ -282,6 +286,29 @@ func main() {
 	}()
 
 	client.Run()
+}
+
+// Basic grab functionality. This is the function that runs when you just @grab
+func baseGrab(title string, transcript string, ev *slackevents.AppMentionEvent) (err error) {
+	err = publishToWiki(title, transcript)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	baseResponse := "Article saved! You can find it posted at: "	
+	newArticleURL, _, err := getArticleURL(title)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	// Post ephemeral message to user
+	_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+	if err != nil {
+		fmt.Printf("failed posting message: %v", err)
+		return err
+	}
+	return nil
 }
 
 // Simply takes a title and a string, and puts it on the wiki, clobbering
@@ -323,8 +350,8 @@ func appendToWiki(title string, sectionTitle string, convo string) error {
 
 // Takes in a slack thread and...
 // Gets peoples' CSH usernames and makes them into page links (TODO)
-// Removes any mention of Grab (TODO)
-// Adds human readable timestamp to the top of the transcript (TODO)
+// Removes any mention of Grab
+// Adds human readable timestamp to the top of the transcript
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
 func generateTranscript(conversation []slack.Message) (title string, transcript string) {
@@ -356,7 +383,6 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 			fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
         }
     }
-
 
 	return pureConversation[0].Text, transcript
 }
