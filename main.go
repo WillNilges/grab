@@ -176,6 +176,8 @@ func main() {
 								}
 								break*/
 
+								// Get the messageID required for a DM
+
 								// Create a block kit message to ask the user
 								// if they _really_ want to overwrite the page
 								warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
@@ -236,14 +238,53 @@ func main() {
 					if actionID == "confirm_wiki_page_overwrite" {
 						client.Ack(*evt.Request)
 
-						// First, delete the old message (fuck you too, slack)
+						fmt.Println("OG MESSAGE")
+						fmt.Println(callback.Message)
+
+
+						// First, delete the old message 
 						api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
+						/*
+						// Check if user provided a title
+						var possibleTitle string
+						if len(commandMessage) > 1 {
+							possibleTitle = strings.Join(commandMessage[1:], " ")
+						}
+
+						// Check if a page with the same title exists
+
+						// Get the conversation history
+						params := slack.GetConversationRepliesParameters{
+							ChannelID: ev.Channel,
+							Timestamp: ev.ThreadTimeStamp,
+						}
+						messages, _, _, err := api.GetConversationReplies(&params)
+						if err != nil {
+							fmt.Println("Oh fuck that's an error.")
+							fmt.Println(err)
+						}
+
+						// Print the messages in the conversation history
+						var transcript string
+						if len(possibleTitle) > 0 {
+							_, transcript = generateTranscript(messages)
+						} else {
+							possibleTitle, transcript = generateTranscript(messages)
+						}
+
+						// Now that we have the final title, check if the article exists
+						newArticleURL, missing, err := getArticleURL(possibleTitle)
+
+						baseGrab(possibleTitle, transcript, ev)
+*/
 						
+						// Notify the user of success (unneeded because baseGrab should do that already)
 						_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.OriginalMessage.ThreadTimestamp), slack.MsgOptionText("I will save it if you implement that function ;)", false))
 
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
 						}
+
 					} else {
 						log.Printf("Unexpected Action Occured: %s.\n", actionID, callback.BlockID)
 					}
