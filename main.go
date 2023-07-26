@@ -11,6 +11,7 @@ import (
 
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
+	"net/http"
 
 	"github.com/joho/godotenv"
 
@@ -252,11 +253,16 @@ func main() {
 					actionID := callback.ActionCallback.BlockActions[0].ActionID
 					if actionID == "confirm_wiki_page_overwrite" {
 						client.Ack(*evt.Request)
+						responseData := fmt.Sprintf(`{"replace_original": "true", "text": "OK! Will do!", "thread_ts": "%d"}`, callback.Container.ThreadTs)
+						reader := strings.NewReader(responseData)
+						response, err := http.Post(callback.ResponseURL, "application/json", reader)	
+						//slack.MsgOptionTS(ev.ThreadTimeStamp)
 
+						fmt.Println(response)
 						// First, delete the old message (fuck you too, slack)
-						api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
+						//api.DeleteMessage(callback.Channel.ID, callback.Message.Timestamp)
 						
-						_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.OriginalMessage.ThreadTimestamp), slack.MsgOptionText("I will save it if you implement that function ;)", false))
+						//_, err := client.PostEphemeral(callback.Channel.ID, callback.User.ID, slack.MsgOptionTS(callback.OriginalMessage.ThreadTimestamp), slack.MsgOptionText("I will save it if you implement that function ;)", false))
 
 						if err != nil {
 							log.Printf("Failed updating message: %v", err)
