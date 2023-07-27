@@ -161,7 +161,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 	if len(commandMessage) >= 2 {
 		subCommand = commandMessage[1]
 	}
-	if subCommand == "append" {
+	if subCommand == "append" { 
 	} else if subCommand == "range" {
 	} else if subCommand == "summarize" {
 	} else if subCommand == "help" {
@@ -170,13 +170,22 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 		// Get every message in the thread, and create a new wiki page with a transcription.
 
-		_, possibleTitle, _, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
+		_, possibleTitle, possibleSectionTitle, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
 
 		// Now that we have the final title, check if the article exists
 		newArticleURL, missing, err := getArticleURL(possibleTitle)
+		if err != nil {
+			fmt.Println(err)
+		}
 
+		// TODO: If the title doesn't check out, check if the section does. If not,
+		// then scream.
+		sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
+		if err != nil {
+			fmt.Println(err)
+		}
 		// If there is an existing article with that title
-		if !missing {
+		if !missing && (len(possibleSectionTitle) > 0 && sectionExists) {
 			// Ask user if they _really_ want to overwrite the page
 			warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
 			confirmButton := slack.NewButtonBlockElement(
@@ -219,7 +228,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			// If there is no article with that title, then
 			// go ahead and publish it, then send the user
 			// an ephemeral message of success
-			err = publishToWiki(false, possibleTitle, "", transcript)
+			err = publishToWiki(false, possibleTitle, possibleSectionTitle, transcript)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -302,7 +311,7 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 
 	if sectionTitle != "" {
 		parameters["section"] = "new"
-		parameters["sectionTitle"] = sectionTitle
+		parameters["sectiontitle"] = sectionTitle
 	}
 
 	if append {
@@ -403,13 +412,12 @@ func getArticleURL(title string) (url string, missing bool, err error) {
 	}
 
 	newArticle, err := w.Get(newArticleParameters)
-
-	fmt.Println("CHECKING FOR ARTICLE")
-	fmt.Println(newArticle)
-
 	if err != nil {
 		return "", false, err
 	}
+
+	fmt.Println("CHECKING FOR ARTICLE")
+	fmt.Println(newArticle)
 
 	pages, err := newArticle.GetObjectArray("query", "pages")
 	for _, page := range pages {
@@ -424,3 +432,33 @@ func getArticleURL(title string) (url string, missing bool, err error) {
 
 	return url, missing, nil
 }
+
+// Check if the section exists or not, that's really all we care about (for now).
+func sectionExists(title string, section string) (exists bool, err error) {
+	sectionQueryParameters := map[string]string{
+		"format": "json",
+		"action": "parse",
+		"page":   title,
+		"prop":   "sections",
+	}
+
+	sectionQuery, err := w.Get(sectionQueryParameters)
+	if err != nil {
+		return false, err
+	}
+
+	sections, err := sectionQuery.GetObjectArray("parse", "sections")
+	for _, sect := range sections {
+		var line string
+		line, err = sect.GetString("line")
+		if err != nil {
+			return false, err
+		}
+		if line == section {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
