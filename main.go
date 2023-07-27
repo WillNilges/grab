@@ -173,6 +173,8 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			fmt.Println(err)
 		}
 
+		fmt.Println(newArticleURL)
+
 		if missing {
 			// Post ephemeral message to user
 			_, err = client.PostEphemeral(
@@ -190,7 +192,14 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			return
 		}
 
-		if (len(possibleSectionTitle) > 0) {
+		fmt.Println("What the fuck is this")
+		fmt.Println(possibleSectionTitle)
+		fmt.Println(commandMessage)
+
+		// Only check this if a section title was provided.
+		if len(possibleSectionTitle) > 0 && len(commandMessage) >= 4 {
+			fmt.Println("What the fuck is this")
+			fmt.Println(possibleSectionTitle)
 			sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
 			if err != nil {
 				fmt.Println(err)
@@ -212,6 +221,12 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 				}
 				return
 			}
+		} else {
+			// Necessary because my shitty code sets it automatically but here
+			// we don't necessarily want that. I could add another bool to the
+			// packageConversation function but that's work and effort and I am
+			// verly lazy :)
+			possibleSectionTitle = ""
 		}
 
 		err = publishToWiki(true, possibleTitle, possibleSectionTitle, transcript)
@@ -379,7 +394,6 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 		"summary": "Grab publishToWiki",
 	}
 
-	fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 	if sectionTitle != "" {
 		if append {
@@ -387,18 +401,15 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 			if err != nil {
 				return err
 			}
-
 			parameters["section"] = index 
-
-			convo = "\n\n" + convo
 		} else {
 			parameters["section"] = "new"
 		}
-
 		parameters["sectiontitle"] = sectionTitle
 	}
 
 	if append {
+		convo = "\n\n" + convo // Prepend some newlines so that he gets formatted properly
 		delete(parameters, "text")
 		parameters["appendtext"] = convo
 		parameters["summary"] = fmt.Sprintf("Grab publishToWiki append section %s", sectionTitle)
