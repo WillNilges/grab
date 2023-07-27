@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -123,91 +123,8 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						// Tokenize mention message passed to grab
-						commandMessage := tokenizeCommand(ev.Text)
-						var subCommand string
-						if len(commandMessage) >= 2 {
-							subCommand = commandMessage[1]
-						}
-						if subCommand == "append" {
-						} else if subCommand == "range" {
-						} else if subCommand == "summarize" {
-						} else if subCommand == "help" {
-							
-						} else { // Default behavior
-							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
-							// Get every message in the thread, and create a new wiki page with a transcription.
+						handleMention(ev) // Deal with commands
 
-							channelID := ev.Channel
-							threadTs := ev.ThreadTimeStamp
-
-							_, possibleTitle, _, transcript := packageForWiki(channelID, threadTs)
-
-							// Now that we have the final title, check if the article exists
-							newArticleURL, missing, err := getArticleURL(possibleTitle)
-
-							// If there is an existing article with that title
-							if !missing {
-								// Ask user if they _really_ want to overwrite the page
-								warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
-								confirmButton := slack.NewButtonBlockElement(
-											"confirm_wiki_page_overwrite",
-											"CONFIRM",
-											slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
-										)
-								confirmButton.Style = "danger"
-								blockMsg := slack.MsgOptionBlocks(
-									slack.NewSectionBlock(
-										slack.NewTextBlockObject(
-											"mrkdwn",
-											warningMessage, 
-											false,
-											false,
-										),
-										nil,
-										nil,
-									),
-									slack.NewActionBlock(
-										"",
-										confirmButton,
-										slack.NewButtonBlockElement(
-											"cancel_wiki_page_overwrite",
-											"CANCEL",
-											slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
-										),
-									),
-								)
-								_, err := api.PostEphemeral(
-									ev.Channel, 
-									ev.User, 
-									slack.MsgOptionTS(ev.ThreadTimeStamp), 
-									blockMsg,
-								)
-								if err != nil {
-									log.Printf("Failed to send message: %v", err)
-								}
-							} else {
-								// If there is no article with that title, then
-								// go ahead and publish it, then send the user
-								// an ephemeral message of success
-								err = publishToWiki(false, possibleTitle, "", transcript)
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								baseResponse := "Article saved! You can find it posted at: "	
-								newArticleURL, _, err := getArticleURL(possibleTitle)
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								// Post ephemeral message to user
-								_, err = client.PostEphemeral( ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText( fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
-								if err != nil {
-									fmt.Printf("failed posting message: %v", err)
-								}
-							}
-						}
 					}
 				default:
 					client.Debugf("unsupported Events API event received")
@@ -218,57 +135,15 @@ func main() {
 					fmt.Printf("Ignored %+v\n", evt)
 					continue
 				}
-
 				fmt.Printf("Interaction received: %+v\n", callback)
-
 				var payload interface{}
 
 				switch callback.Type {
 				case slack.InteractionTypeBlockActions:
-					// See https://api.slack.com/apis/connections/socket-implement#button
-					actionID := callback.ActionCallback.BlockActions[0].ActionID
-					if actionID == "confirm_wiki_page_overwrite" {
-						client.Ack(*evt.Request) // Tell Slack we got him
-						
-						channelID := callback.Container.ChannelID
-						threadTs := callback.Container.ThreadTs
-
-						_, possibleTitle, _, transcript := packageForWiki(channelID, threadTs)
-
-						// possibleTitle, transcript, commandMessage
-
-						// Save the transcript to the wiki
-						err := publishToWiki(false, possibleTitle, "", transcript)
-						if err != nil {
-							fmt.Println(err)
-						}
-
-						// Update the ephemeral message
-						newArticleURL, _, err := getArticleURL(possibleTitle)
-						responseData := fmt.Sprintf(`{"replace_original": "true", "thread_ts": "%d", "text": "Article saved! You can find it posted at: %s"}`, callback.Container.ThreadTs, newArticleURL)
-						reader := strings.NewReader(responseData)
-						_, err = http.Post(callback.ResponseURL, "application/json", reader)	
-
-						if err != nil {
-							log.Printf("Failed updating message: %v", err)
-						}
-					} else if actionID == "cancel_wiki_page_overwrite" {
-						client.Ack(*evt.Request) // Tell Slack we got him
-						// Update the ephemeral message
-						responseData := fmt.Sprintf(`{"replace_original": "true", "thread_ts": "%d", "text": "Grab request cancelled."}`, callback.Container.ThreadTs)
-						reader := strings.NewReader(responseData)
-						_, err := http.Post(callback.ResponseURL, "application/json", reader)	
-
-						if err != nil {
-							log.Printf("Failed updating message: %v", err)
-						}
-					} else {
-						log.Printf("Unexpected Action Occured: %s.\n", actionID, callback.BlockID)
-					}
+					handleInteraction(&evt, &callback) // Deal with subsequent interactions from users
 				default:
 
 				}
-
 				client.Ack(*evt.Request, payload)
 			default:
 				fmt.Fprintf(os.Stderr, "Unexpected event type received: %s\n", evt.Type)
@@ -277,6 +152,135 @@ func main() {
 	}()
 
 	client.Run()
+}
+
+func handleMention(ev *slackevents.AppMentionEvent) {
+	// Tokenize mention message passed to grab
+	commandMessage := tokenizeCommand(ev.Text)
+	var subCommand string
+	if len(commandMessage) >= 2 {
+		subCommand = commandMessage[1]
+	}
+	if subCommand == "append" {
+	} else if subCommand == "range" {
+	} else if subCommand == "summarize" {
+	} else if subCommand == "help" {
+
+	} else { // Default behavior
+		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
+		// Get every message in the thread, and create a new wiki page with a transcription.
+
+		_, possibleTitle, _, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
+
+		// Now that we have the final title, check if the article exists
+		newArticleURL, missing, err := getArticleURL(possibleTitle)
+
+		// If there is an existing article with that title
+		if !missing {
+			// Ask user if they _really_ want to overwrite the page
+			warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
+			confirmButton := slack.NewButtonBlockElement(
+				"confirm_wiki_page_overwrite",
+				"CONFIRM",
+				slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+			)
+			confirmButton.Style = "danger"
+			blockMsg := slack.MsgOptionBlocks(
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(
+						"mrkdwn",
+						warningMessage,
+						false,
+						false,
+					),
+					nil,
+					nil,
+				),
+				slack.NewActionBlock(
+					"",
+					confirmButton,
+					slack.NewButtonBlockElement(
+						"cancel_wiki_page_overwrite",
+						"CANCEL",
+						slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
+					),
+				),
+			)
+			_, err := api.PostEphemeral(
+				ev.Channel,
+				ev.User,
+				slack.MsgOptionTS(ev.ThreadTimeStamp),
+				blockMsg,
+			)
+			if err != nil {
+				log.Printf("Failed to send message: %v", err)
+			}
+		} else {
+			// If there is no article with that title, then
+			// go ahead and publish it, then send the user
+			// an ephemeral message of success
+			err = publishToWiki(false, possibleTitle, "", transcript)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			baseResponse := "Article saved! You can find it posted at: "
+			newArticleURL, _, err := getArticleURL(possibleTitle)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			// Post ephemeral message to user
+			_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+			if err != nil {
+				fmt.Printf("failed posting message: %v", err)
+			}
+		}
+	}
+}
+
+func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallback) {
+	actionID := callback.ActionCallback.BlockActions[0].ActionID
+	if actionID == "confirm_wiki_page_overwrite" {
+		client.Ack(*evt.Request) // Tell Slack we got him
+
+		_, possibleTitle, _, transcript := packageConversation(callback.Container.ChannelID, callback.Container.ThreadTs)
+
+		// Save the transcript to the wiki
+		err := publishToWiki(false, possibleTitle, "", transcript)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		// Update the ephemeral message
+		newArticleURL, _, err := getArticleURL(possibleTitle)
+		responseData := fmt.Sprintf(
+			`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
+			callback.Container.ThreadTs,
+			newArticleURL,
+		)
+		reader := strings.NewReader(responseData)
+		_, err = http.Post(callback.ResponseURL, "application/json", reader)
+
+		if err != nil {
+			log.Printf("Failed updating message: %v", err)
+		}
+	} else if actionID == "cancel_wiki_page_overwrite" {
+		client.Ack(*evt.Request) // Tell Slack we got him
+		// Update the ephemeral message
+		responseData := fmt.Sprintf(
+			`{"replace_original": "true", "thread_ts": "%d", "text": "Grab request cancelled."}`,
+			callback.Container.ThreadTs,
+		)
+		reader := strings.NewReader(responseData)
+		_, err := http.Post(callback.ResponseURL, "application/json", reader)
+
+		if err != nil {
+			log.Printf("Failed updating message: %v", err)
+		}
+	} else {
+		log.Printf("Unexpected Action Occured: %s.\n", actionID, callback.BlockID)
+	}
 }
 
 func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
@@ -289,16 +293,16 @@ func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
 func publishToWiki(append bool, title string, sectionTitle string, convo string) (err error) {
 	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
 	parameters := map[string]string{
-		"action": "edit",
-		"title":  title,
-		"text":   convo,
-		"bot":    "true",
+		"action":  "edit",
+		"title":   title,
+		"text":    convo,
+		"bot":     "true",
 		"summary": "Grab publishToWiki",
 	}
 
 	if sectionTitle != "" {
 		parameters["section"] = "new"
-		parameters["sectionTitle"] = sectionTitle 
+		parameters["sectionTitle"] = sectionTitle
 	}
 
 	if append {
@@ -311,7 +315,7 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	return w.Edit(parameters)
 }
 
-func packageForWiki(channelID string, threadTs string) (commandMessage []string, possibleTitle string, possibleSectionTitle string, transcript string) {
+func packageConversation(channelID string, threadTs string) (commandMessage []string, possibleTitle string, possibleSectionTitle string, transcript string) {
 	// Get the conversation history
 	params := slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
@@ -336,13 +340,13 @@ func packageForWiki(channelID string, threadTs string) (commandMessage []string,
 		possibleSectionTitle = strings.Trim(commandMessage[2], `\"`) // I think the tokenizer leaves the quotes.
 	}
 
-	// Generate a wiki-friendly transcript of the conversation 
+	// Generate a wiki-friendly transcript of the conversation
 	var genTitle string
 	genTitle, transcript = generateTranscript(messages)
 	// Get a title if we need one.
 	if len(possibleTitle) == 0 {
 		possibleTitle = genTitle
-	} 
+	}
 	if len(possibleSectionTitle) == 0 {
 		possibleSectionTitle = genTitle
 	}
@@ -377,24 +381,24 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 	// Remove messages sent by Grab	and mentioning Grab
 	// Format conversation into string line-by-line
 	fmt.Printf("Looking for: <@%s>\n", authTestResponse.UserID)
-    var pureConversation []slack.Message
-    for _, message := range conversation {
-        if message.User != authTestResponse.UserID && !strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
-            pureConversation = append(pureConversation, message)
+	var pureConversation []slack.Message
+	for _, message := range conversation {
+		if message.User != authTestResponse.UserID && !strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+			pureConversation = append(pureConversation, message)
 			transcript += message.User + ": " + message.Text + "\n\n"
 			fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
-        }
-    }
+		}
+	}
 
 	return pureConversation[0].Text, transcript
 }
 
 func getArticleURL(title string) (url string, missing bool, err error) {
-	newArticleParameters := map[string]string {
+	newArticleParameters := map[string]string{
 		"action": "query",
 		"format": "json",
 		"titles": title,
-		"prop": "info",
+		"prop":   "info",
 		"inprop": "url",
 	}
 
