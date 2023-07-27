@@ -162,8 +162,78 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		subCommand = commandMessage[1]
 	}
 	if subCommand == "append" { 
+		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
+		// Get every message in the thread, and create a new wiki page with a transcription.
+
+		_, possibleTitle, possibleSectionTitle, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
+
+		// Now that we have the final title, check if the article exists
+		newArticleURL, missing, err := getArticleURL(possibleTitle)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		if missing {
+			// Post ephemeral message to user
+			_, err = client.PostEphemeral(
+				ev.Channel, 
+				ev.User, 
+				slack.MsgOptionTS(ev.ThreadTimeStamp), 
+				slack.MsgOptionText(
+					`That article doesn't exist. Try again without the "append" subcommand.`,
+					false,
+				),
+			)
+			if err != nil {
+				fmt.Printf("failed posting message: %v", err)
+			}
+			return
+		}
+
+		if (len(possibleSectionTitle) > 0) {
+			sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			if !sectionExists {
+				// Post ephemeral message to user
+				_, err = client.PostEphemeral(
+					ev.Channel, 
+					ev.User, 
+					slack.MsgOptionTS(ev.ThreadTimeStamp), 
+					slack.MsgOptionText(
+						`That section doesn't exist. Try again without the "append" subcommand.`,
+						false,
+					),
+				)
+				if err != nil {
+					fmt.Printf("failed posting message: %v", err)
+				}
+				return
+			}
+		}
+
+		err = publishToWiki(true, possibleTitle, possibleSectionTitle, transcript)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		baseResponse := "Article updated! You can find it at: "
+		newArticleURL, _, err = getArticleURL(possibleTitle)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		// Post ephemeral message to user
+		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+		if err != nil {
+			fmt.Printf("failed posting message: %v", err)
+		}
+		
 	} else if subCommand == "range" {
 	} else if subCommand == "summarize" {
+		// TODO: Funny AI shit
 	} else if subCommand == "help" {
 
 	} else { // Default behavior
@@ -178,7 +248,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			fmt.Println(err)
 		}
 
-		// TODO: If the title doesn't check out, check if the section does. If not,
+		// If the title doesn't check out, check if the section does. If not,
 		// then scream.
 		sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
 		if err != nil {
@@ -256,7 +326,7 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 		_, possibleTitle, _, transcript := packageConversation(callback.Container.ChannelID, callback.Container.ThreadTs)
 
 		// Save the transcript to the wiki
-		err := publishToWiki(false, possibleTitle, "", transcript)
+		err := publishToWiki(false, possibleTitle, "", transcript) // TODO: No section title? probably bug
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -309,8 +379,22 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 		"summary": "Grab publishToWiki",
 	}
 
+	fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
 	if sectionTitle != "" {
-		parameters["section"] = "new"
+		if append {
+			index, err := findSectionId(title, sectionTitle)
+			if err != nil {
+				return err
+			}
+
+			parameters["section"] = index 
+
+			convo = "\n\n" + convo
+		} else {
+			parameters["section"] = "new"
+		}
+
 		parameters["sectiontitle"] = sectionTitle
 	}
 
@@ -341,12 +425,16 @@ func packageConversation(channelID string, threadTs string) (commandMessage []st
 	commandMessage = tokenizeCommand(messages[len(messages)-1].Text)
 	// Make sure the title exists, and also isn't mistaken for a subcomamnd
 	subCommands := map[string]bool{"append": true, "range": true, "help": true, "summarize": true}
-	if len(commandMessage) > 1 && !subCommands[commandMessage[1]] {
-		possibleTitle = strings.Trim(commandMessage[1], `\"`) // I think the tokenizer leaves the quotes.
+	lookahead := 0
+	if subCommands[commandMessage[1]] {
+		lookahead = 1
+	}
+	if len(commandMessage) > 1 + lookahead && !subCommands[commandMessage[1 + lookahead]] {
+		possibleTitle = strings.Trim(commandMessage[1 + lookahead], `\"`) // I think the tokenizer leaves the quotes.
 	}
 	// While we're at it, check for a sectionTitle
-	if len(commandMessage) > 2 && !subCommands[commandMessage[2]] {
-		possibleSectionTitle = strings.Trim(commandMessage[2], `\"`) // I think the tokenizer leaves the quotes.
+	if len(commandMessage) > 2 + lookahead && !subCommands[commandMessage[2 + lookahead]] {
+		possibleSectionTitle = strings.Trim(commandMessage[2 + lookahead], `\"`) // I think the tokenizer leaves the quotes.
 	}
 
 	// Generate a wiki-friendly transcript of the conversation
@@ -460,5 +548,38 @@ func sectionExists(title string, section string) (exists bool, err error) {
 	}
 
 	return false, nil
+}
+
+// Check if the section exists or not, that's really all we care about (for now).
+func findSectionId(title string, section string) (id string, err error) {
+	sectionQueryParameters := map[string]string{
+		"format": "json",
+		"action": "parse",
+		"page":   title,
+		"prop":   "sections",
+	}
+
+	sectionQuery, err := w.Get(sectionQueryParameters)
+	if err != nil {
+		return "", err
+	}
+
+	sections, err := sectionQuery.GetObjectArray("parse", "sections")
+	for _, sect := range sections {
+		var line string
+		line, err = sect.GetString("line")
+		if err != nil {
+			return "", err
+		}
+		if line == section {
+			id, err = sect.GetString("index") 
+			if err != nil {
+				return "", err
+			}
+			return id, nil
+		}
+	}
+
+	return "", nil
 }
 
