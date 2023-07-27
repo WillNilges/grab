@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"log"
 	"os"
 	"strings"
@@ -122,43 +123,25 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						commandMessage := strings.Split(ev.Text, " ")
+						// Tokenize mention message passed to grab
+						commandMessage := tokenizeCommand(ev.Text)
 						var subCommand string
 						if len(commandMessage) >= 2 {
 							subCommand = commandMessage[1]
 						}
-						if strings.Contains(subCommand, "append") {
-						} else if strings.Contains(subCommand, "range") {
-						} else if strings.Contains(subCommand, "help") {
+						if subCommand == "append" {
+						} else if subCommand == "range" {
+						} else if subCommand == "summarize" {
+						} else if subCommand == "help" {
 							
 						} else { // Default behavior
 							// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 							// Get every message in the thread, and create a new wiki page with a transcription.
 
-							// Check if user provided a title
-							var possibleTitle string
-							if len(commandMessage) > 1 {
-								possibleTitle = strings.Join(commandMessage[1:], " ")
-							}
+							channelID := ev.Channel
+							threadTs := ev.ThreadTimeStamp
 
-							// Get the conversation history
-							params := slack.GetConversationRepliesParameters{
-								ChannelID: ev.Channel,
-								Timestamp: ev.ThreadTimeStamp,
-							}
-							messages, _, _, err := api.GetConversationReplies(&params)
-							if err != nil {
-								fmt.Println("Oh fuck that's an error.")
-								fmt.Println(err)
-							}
-
-							// Print the messages in the conversation history
-							var transcript string
-							if len(possibleTitle) > 0 {
-								_, transcript = generateTranscript(messages)
-							} else {
-								possibleTitle, transcript = generateTranscript(messages)
-							}
+							_, possibleTitle, _, transcript := packageForWiki(channelID, threadTs)
 
 							// Now that we have the final title, check if the article exists
 							newArticleURL, missing, err := getArticleURL(possibleTitle)
@@ -245,37 +228,17 @@ func main() {
 					// See https://api.slack.com/apis/connections/socket-implement#button
 					actionID := callback.ActionCallback.BlockActions[0].ActionID
 					if actionID == "confirm_wiki_page_overwrite" {
-						client.Ack(*evt.Request)
+						client.Ack(*evt.Request) // Tell Slack we got him
 						
-						// Get the conversation history
-						params := slack.GetConversationRepliesParameters{
-							ChannelID: callback.Container.ChannelID,
-							Timestamp: callback.Container.ThreadTs,
-						}
-						messages, _, _, err := api.GetConversationReplies(&params)
-						if err != nil {
-							fmt.Println("Oh fuck that's an error.")
-							fmt.Println(err)
-						}
+						channelID := callback.Container.ChannelID
+						threadTs := callback.Container.ThreadTs
 
-						// Theoretically, the last message in the convo should have the title,
-						// if any was submitted
-						commandMessage := strings.Split(messages[len(messages)-1].Text, " ")
-						var possibleTitle string
-						if len(commandMessage) > 1 {
-							possibleTitle = strings.Join(commandMessage[1:], " ")
-						}
+						_, possibleTitle, _, transcript := packageForWiki(channelID, threadTs)
 
-						// Print the messages in the conversation history
-						var transcript string
-						if len(possibleTitle) > 0 {
-							_, transcript = generateTranscript(messages)
-						} else {
-							possibleTitle, transcript = generateTranscript(messages)
-						}
+						// possibleTitle, transcript, commandMessage
 
 						// Save the transcript to the wiki
-						err = publishToWiki(false, possibleTitle, "", transcript)
+						err := publishToWiki(false, possibleTitle, "", transcript)
 						if err != nil {
 							fmt.Println(err)
 						}
@@ -290,6 +253,7 @@ func main() {
 							log.Printf("Failed updating message: %v", err)
 						}
 					} else if actionID == "cancel_wiki_page_overwrite" {
+						client.Ack(*evt.Request) // Tell Slack we got him
 						// Update the ephemeral message
 						responseData := fmt.Sprintf(`{"replace_original": "true", "thread_ts": "%d", "text": "Grab request cancelled."}`, callback.Container.ThreadTs)
 						reader := strings.NewReader(responseData)
@@ -313,6 +277,11 @@ func main() {
 	}()
 
 	client.Run()
+}
+
+func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
+	r := regexp.MustCompile(`\"[^\"]+\"|\S+`)
+	return r.FindAllString(commandMessage, -1)
 }
 
 // Helper function for putting things on the wiki. Can easily control how content
@@ -340,6 +309,45 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 
 	// Make the request.
 	return w.Edit(parameters)
+}
+
+func packageForWiki(channelID string, threadTs string) (commandMessage []string, possibleTitle string, possibleSectionTitle string, transcript string) {
+	// Get the conversation history
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
+	}
+	messages, _, _, err := api.GetConversationReplies(&params)
+	if err != nil {
+		fmt.Println("Oh fuck that's an error.")
+		fmt.Println(err)
+	}
+
+	// Theoretically, the last message in the convo should have the title,
+	// if any was submitted
+	commandMessage = tokenizeCommand(messages[len(messages)-1].Text)
+	// Make sure the title exists, and also isn't mistaken for a subcomamnd
+	subCommands := map[string]bool{"append": true, "range": true, "help": true, "summarize": true}
+	if len(commandMessage) > 1 && !subCommands[commandMessage[1]] {
+		possibleTitle = strings.Trim(commandMessage[1], `\"`) // I think the tokenizer leaves the quotes.
+	}
+	// While we're at it, check for a sectionTitle
+	if len(commandMessage) > 2 && !subCommands[commandMessage[2]] {
+		possibleSectionTitle = strings.Trim(commandMessage[2], `\"`) // I think the tokenizer leaves the quotes.
+	}
+
+	// Generate a wiki-friendly transcript of the conversation 
+	var genTitle string
+	genTitle, transcript = generateTranscript(messages)
+	// Get a title if we need one.
+	if len(possibleTitle) == 0 {
+		possibleTitle = genTitle
+	} 
+	if len(possibleSectionTitle) == 0 {
+		possibleSectionTitle = genTitle
+	}
+
+	return commandMessage, possibleTitle, possibleSectionTitle, transcript
 }
 
 // Takes in a slack thread and...
