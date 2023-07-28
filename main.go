@@ -437,7 +437,7 @@ func packageConversation(channelID string, threadTs string) (commandMessage []st
 	// Make sure the title exists, and also isn't mistaken for a subcomamnd
 	subCommands := map[string]bool{"append": true, "range": true, "help": true, "summarize": true}
 	lookahead := 0
-	if subCommands[commandMessage[1]] {
+	if len(commandMessage) > 2 && subCommands[commandMessage[1]] {
 		lookahead = 1
 	}
 	if len(commandMessage) > 1 + lookahead && !subCommands[commandMessage[1 + lookahead]] {
@@ -490,10 +490,25 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 	// Format conversation into string line-by-line
 	fmt.Printf("Looking for: <@%s>\n", authTestResponse.UserID)
 	var pureConversation []slack.Message
+	conversationUsers := map[string]string {}
 	for _, message := range conversation {
 		if message.User != authTestResponse.UserID && !strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
 			pureConversation = append(pureConversation, message)
-			transcript += message.User + ": " + message.Text + "\n\n"
+			
+			// Translate the user id to a user name
+			var msgUser *slack.User	
+			if len(conversationUsers[message.User]) == 0 {
+				msgUser, err = api.GetUserInfo(message.User)
+				if err != nil {
+					fmt.Println(err)
+				} else {
+					conversationUsers[message.User] = msgUser.Name
+				}
+			}
+			var msgUserName string
+			msgUserName = conversationUsers[message.User]
+
+			transcript += msgUserName + ": " + message.Text + "\n\n"
 			fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
 		}
 	}
