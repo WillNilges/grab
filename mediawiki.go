@@ -17,7 +17,8 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	}
 
 	if sectionTitle != "" {
-		if append {
+		sectionExists, _ := sectionExists(title, sectionTitle)
+		if sectionExists && append {
 			index, err := findSectionId(title, sectionTitle)
 			if err != nil {
 				return err
@@ -53,9 +54,6 @@ func getArticleURL(title string) (url string, missing bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-
-	fmt.Println("CHECKING FOR ARTICLE")
-	fmt.Println(newArticle)
 
 	pages, err := newArticle.GetObjectArray("query", "pages")
 	for _, page := range pages {

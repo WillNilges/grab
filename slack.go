@@ -17,15 +17,6 @@ import (
     "github.com/akamensky/argparse"
 )
 
-type grabSubCmd int
-
-const (
-    help grabSubCmd = iota
-    app // append, but append is a keyword IG
-    rng // range, but range is a keyword IG
-    summarize
-)
-
 func slackBot() {
 	go func() {
 		for evt := range client.Events {
@@ -82,133 +73,107 @@ func slackBot() {
 }
 
 type Command struct {
-	clobberFlag *bool
-	summarizeFlag *bool
-	appendOpts AppendCmd
-	rangeOpts RangeCmd 
-}
+	clobber *bool
+	summarize *bool
 
-type AppendCmd struct {
 	title *string
 	section *string
-}
 
-type RangeCmd struct {
+	appendHappened bool
+	rangeHappened bool
+	rangeOpts Range 
+}
+type Range struct {
 	firstMessage *string
 	lastMessage *string
-	title *string
-	section *string
 }
 
-func interpretCommand(tokenizedCommand []string) (command Command) {
+func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 	parser := argparse.NewParser("grab", "A command-line tool for grabbing content")
 
-	command.clobberFlag = parser.Flag("c", "clobber", &argparse.Options{Help: "Overwrite possibly existing content"})
-	command.summarizeFlag = parser.Flag("s", "summarize", &argparse.Options{Help: "Summarize content"})
+	command.clobber = parser.Flag("c", "clobber", &argparse.Options{Help: "Overwrite possibly existing content"})
+	command.summarize = parser.Flag("s", "summarize", &argparse.Options{Help: "Summarize content"})
 
-    // @grab <chom> skz
-	appendCmd := parser.NewCommand("append", "Append this thread as new content to the wiki.")
-	command.appendOpts.title = appendCmd.StringPositional(&argparse.Options{Required: true, Help: "Title"})
-	command.appendOpts.section = appendCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
+	appendCmd := parser.NewCommand("get", "Append this thread as new content to the wiki.")
+	command.title = appendCmd.StringPositional(&argparse.Options{Required: true, Help: "Title"})
+	command.section = appendCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
 
-    // @grab range <start> <end> chom skz
 	rangeCmd := parser.NewCommand("range", "Append messages between the given links to the wiki, inclusive")
 	command.rangeOpts.firstMessage = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "First chronological message to be saved"})
 	command.rangeOpts.lastMessage = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "Last chronological message to be saved"})
-	command.rangeOpts.title = rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Title"})
-	command.rangeOpts.section = rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
+	rangeTitle := rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Title"})
+	rangeSection := rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
 
 	parser.Parse(tokenizedCommand)
-	return command
+
+	command.appendHappened = appendCmd.Happened()
+	command.rangeHappened = rangeCmd.Happened()
+	if rangeCmd.Happened() {
+		command.title = rangeTitle
+		command.section = rangeSection
+	}
+
+	if err != nil {
+		return command, err
+	}
+	return command, nil
 }
 
 // Code to run if someone mentions the bot.
 func handleMention(ev *slackevents.AppMentionEvent) {
-	commandMessage := "chom"
-	subCommand := "skz"
-	if false { 
-		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
-		// Get every message in the thread, and create a new wiki page with a transcription.
+	command, err := interpretCommand(tokenizeCommand(ev.Text))
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
-		_, possibleTitle, possibleSectionTitle, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
+	if command.appendHappened { 
+		var transcript string
+
+		if *command.title == "" {
+			// Get title if not provided
+			command.title, transcript = generateTranscript(ev.Channel, ev.ThreadTimeStamp)
+		} else {
+			_, transcript = generateTranscript(ev.Channel, ev.ThreadTimeStamp)
+		}
 
 		// Now that we have the final title, check if the article exists
-		newArticleURL, missing, err := getArticleURL(possibleTitle)
+		newArticleURL, missing, err := getArticleURL(*command.title)
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		if missing {
-			// Post ephemeral message to user
-			_, err = client.PostEphemeral(
-				ev.Channel, 
-				ev.User, 
-				slack.MsgOptionTS(ev.ThreadTimeStamp), 
-				slack.MsgOptionText(
-					`That article doesn't exist. Try again without the "append" subcommand.`,
-					false,
-				),
-			)
-			if err != nil {
-				fmt.Printf("failed posting message: %v", err)
-			}
-			return
+		// Publish the content to the wiki. If the article doesn't exist,
+		// then create it. If the section doesn't exist, then create it.
+		err = publishToWiki(!missing, *command.title, *command.section, transcript)
+		if err != nil {
+			fmt.Println(err)
 		}
 
-		// Only check this if a section title was provided.
-		if len(possibleSectionTitle) > 0 && len(commandMessage) >= 4 {
-			sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
+		// Now that it has been published and definitely exists, get
+		// the URL again
+		if missing {
+			newArticleURL, _, err = getArticleURL(*command.title)
 			if err != nil {
 				fmt.Println(err)
 			}
-
-			if !sectionExists {
-				// Post ephemeral message to user
-				_, err = client.PostEphemeral(
-					ev.Channel, 
-					ev.User, 
-					slack.MsgOptionTS(ev.ThreadTimeStamp), 
-					slack.MsgOptionText(
-						`That section doesn't exist. Try again without the "append" subcommand.`,
-						false,
-					),
-				)
-				if err != nil {
-					fmt.Printf("failed posting message: %v", err)
-				}
-				return
-			}
-		} else {
-			// Necessary because my shitty code sets it automatically but here
-			// we don't necessarily want that. I could add another bool to the
-			// packageConversation function but that's work and effort and I am
-			// verly lazy :)
-			possibleSectionTitle = ""
-		}
-
-		err = publishToWiki(true, possibleTitle, possibleSectionTitle, transcript)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		baseResponse := "Article updated! You can find it at: "
-		newArticleURL, _, err = getArticleURL(possibleTitle)
-		if err != nil {
-			fmt.Println(err)
 		}
 
 		// Post ephemeral message to user
-		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
+		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
 		if err != nil {
 			fmt.Printf("failed posting message: %v", err)
 		}
-		
-	} else if subCommand == "range" {
-	} else if subCommand == "summarize" {
-		// TODO: Funny AI shit
-	} else if subCommand == "help" {
-
-	} else { // Default behavior
+	} else if command.rangeHappened {
+	} else {
+		// Post ephemeral message to user
+		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Unrecognized command", false))
+		if err != nil {
+			fmt.Printf("failed posting message: %v", err)
+		}
+	}
+	/*
+	if false { // Default behavior
 		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 		// Get every message in the thread, and create a new wiki page with a transcription.
 
@@ -294,7 +259,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 				fmt.Printf("failed posting message: %v", err)
 			}
 		}
-	}
+	}*/
 }
 
 func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallback) {
@@ -302,7 +267,10 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 	if actionID == "confirm_wiki_page_overwrite" {
 		client.Ack(*evt.Request) // Tell Slack we got him
 
-		_, possibleTitle, _, transcript := packageConversation(callback.Container.ChannelID, callback.Container.ThreadTs)
+		//_, possibleTitle, _, transcript := packageConversation(callback.Container.ChannelID, callback.Container.ThreadTs)
+
+		possibleTitle := "chom"
+		transcript := "skz" 
 
 		// Save the transcript to the wiki
 		err := publishToWiki(false, possibleTitle, "", transcript) // TODO: No section title? probably bug
@@ -346,6 +314,7 @@ func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
 	return r.FindAllString(commandMessage, -1)
 }
 
+/*
 func packageConversation(channelID string, threadTs string) (commandMessage []string, possibleTitle string, possibleSectionTitle string, transcript string) {
 	// Get the conversation history
 	params := slack.GetConversationRepliesParameters{
@@ -387,6 +356,7 @@ func packageConversation(channelID string, threadTs string) (commandMessage []st
 
 	return commandMessage, possibleTitle, possibleSectionTitle, transcript
 }
+*/
 
 // Takes in a slack thread and...
 // Gets peoples' CSH usernames and makes them into page links (TODO)
@@ -394,7 +364,17 @@ func packageConversation(channelID string, threadTs string) (commandMessage []st
 // Adds human readable timestamp to the top of the transcript
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-func generateTranscript(conversation []slack.Message) (title string, transcript string) {
+func generateTranscript(channelID string, threadTs string) (title *string, transcript string) {
+	// Get the conversation history
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
+	}
+	conversation, _, _, err := api.GetConversationReplies(&params)
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	// Define the desired format layout
 	timeLayout := "2006-01-02 at 15:04"
 	currentTime := time.Now().Format(timeLayout)
@@ -439,6 +419,6 @@ func generateTranscript(conversation []slack.Message) (title string, transcript 
 		}
 	}
 
-	return pureConversation[0].Text, transcript
+	return &pureConversation[0].Text, transcript
 }
 
