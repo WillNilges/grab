@@ -97,4 +97,3 @@ func init() {
 func main() {
 	slackBot()
 }
-

@@ -4,6 +4,8 @@ github.com/EricMCarroll/go-mwclient v0.0.0-20230408165329-d3a168291def h1:XOZ1YY
 github.com/EricMCarroll/go-mwclient v0.0.0-20230408165329-d3a168291def/go.mod h1:XRSLGwaQy/xiceXxn9Iwuk9G8iZnkPW4Ob5CimasBN8=
 github.com/Nerzal/gocloak/v13 v13.7.0 h1:rWZdXtGJarcdTp/XC+cHgAMhLUUYSugm4qnb/qHPyKw=
 github.com/Nerzal/gocloak/v13 v13.7.0/go.mod h1:rRBtEdh5N0+JlZZEsrfZcB2sRMZWbgSxI2EIv9jpJp4=
+github.com/akamensky/argparse v1.4.0 h1:YGzvsTqCvbEZhL8zZu2AiA5nq805NZh75JNj4ajn1xc=
+github.com/akamensky/argparse v1.4.0/go.mod h1:S5kwC7IuDcEr5VeXtGPRVZ5o/FdhcMlQz4IZQuw64xA=
 github.com/antonholmquist/jason v1.0.0 h1:Ytg94Bcf1Bfi965K2q0s22mig/n4eGqEij/atENBhA0=
 github.com/antonholmquist/jason v1.0.0/go.mod h1:+GxMEKI0Va2U8h3os6oiUAetHAlGMvxjdpAH/9uvUMA=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

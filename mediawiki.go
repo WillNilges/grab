@@ -1,7 +1,7 @@
 package main
 
 import (
-    "fmt"
+	"fmt"
 )
 
 // Helper function for putting things on the wiki. Can easily control how content
@@ -16,14 +16,13 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 		"summary": "Grab publishToWiki",
 	}
 
-
 	if sectionTitle != "" {
 		if append {
 			index, err := findSectionId(title, sectionTitle)
 			if err != nil {
 				return err
 			}
-			parameters["section"] = index 
+			parameters["section"] = index
 		} else {
 			parameters["section"] = "new"
 		}
@@ -123,7 +122,7 @@ func findSectionId(title string, section string) (id string, err error) {
 			return "", err
 		}
 		if line == section {
-			id, err = sect.GetString("index") 
+			id, err = sect.GetString("index")
 			if err != nil {
 				return "", err
 			}
@@ -133,4 +132,3 @@ func findSectionId(title string, section string) (id string, err error) {
 
 	return "", nil
 }
-

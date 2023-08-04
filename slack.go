@@ -13,6 +13,17 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"net/http"
+
+    "github.com/akamensky/argparse"
+)
+
+type grabSubCmd int
+
+const (
+    help grabSubCmd = iota
+    app // append, but append is a keyword IG
+    rng // range, but range is a keyword IG
+    summarize
 )
 
 func slackBot() {
@@ -41,7 +52,6 @@ func slackBot() {
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
 						handleMention(ev) // Deal with commands
-
 					}
 				default:
 					client.Debugf("unsupported Events API event received")
@@ -71,14 +81,52 @@ func slackBot() {
 	client.Run()
 }
 
+type Command struct {
+	clobberFlag *bool
+	summarizeFlag *bool
+	appendOpts AppendCmd
+	rangeOpts RangeCmd 
+}
+
+type AppendCmd struct {
+	title *string
+	section *string
+}
+
+type RangeCmd struct {
+	firstMessage *string
+	lastMessage *string
+	title *string
+	section *string
+}
+
+func interpretCommand(tokenizedCommand []string) (command Command) {
+	parser := argparse.NewParser("grab", "A command-line tool for grabbing content")
+
+	command.clobberFlag = parser.Flag("c", "clobber", &argparse.Options{Help: "Overwrite possibly existing content"})
+	command.summarizeFlag = parser.Flag("s", "summarize", &argparse.Options{Help: "Summarize content"})
+
+    // @grab <chom> skz
+	appendCmd := parser.NewCommand("append", "Append this thread as new content to the wiki.")
+	command.appendOpts.title = appendCmd.StringPositional(&argparse.Options{Required: true, Help: "Title"})
+	command.appendOpts.section = appendCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
+
+    // @grab range <start> <end> chom skz
+	rangeCmd := parser.NewCommand("range", "Append messages between the given links to the wiki, inclusive")
+	command.rangeOpts.firstMessage = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "First chronological message to be saved"})
+	command.rangeOpts.lastMessage = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "Last chronological message to be saved"})
+	command.rangeOpts.title = rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Title"})
+	command.rangeOpts.section = rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
+
+	parser.Parse(tokenizedCommand)
+	return command
+}
+
+// Code to run if someone mentions the bot.
 func handleMention(ev *slackevents.AppMentionEvent) {
-	// Tokenize mention message passed to grab
-	commandMessage := tokenizeCommand(ev.Text)
-	var subCommand string
-	if len(commandMessage) >= 2 {
-		subCommand = commandMessage[1]
-	}
-	if subCommand == "append" { 
+	commandMessage := "chom"
+	subCommand := "skz"
+	if false { 
 		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 		// Get every message in the thread, and create a new wiki page with a transcription.
 
@@ -89,8 +137,6 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		if err != nil {
 			fmt.Println(err)
 		}
-
-		fmt.Println(newArticleURL)
 
 		if missing {
 			// Post ephemeral message to user
@@ -109,14 +155,8 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			return
 		}
 
-		fmt.Println("What the fuck is this")
-		fmt.Println(possibleSectionTitle)
-		fmt.Println(commandMessage)
-
 		// Only check this if a section title was provided.
 		if len(possibleSectionTitle) > 0 && len(commandMessage) >= 4 {
-			fmt.Println("What the fuck is this")
-			fmt.Println(possibleSectionTitle)
 			sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
 			if err != nil {
 				fmt.Println(err)
@@ -171,6 +211,13 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 	} else { // Default behavior
 		// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
 		// Get every message in the thread, and create a new wiki page with a transcription.
+
+        // First off, check if the command message has a title. If we've made
+        // it this far, it'll be the second token passed.
+
+
+
+        // === old ===
 
 		_, possibleTitle, possibleSectionTitle, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
 
@@ -307,7 +354,6 @@ func packageConversation(channelID string, threadTs string) (commandMessage []st
 	}
 	messages, _, _, err := api.GetConversationReplies(&params)
 	if err != nil {
-		fmt.Println("Oh fuck that's an error.")
 		fmt.Println(err)
 	}
 

@@ -6,6 +6,7 @@ require (
 	cgt.name/pkg/go-mwclient v1.2.0 // indirect
 	github.com/EricMCarroll/go-mwclient v0.0.0-20230408165329-d3a168291def // indirect
 	github.com/Nerzal/gocloak/v13 v13.7.0 // indirect
+	github.com/akamensky/argparse v1.4.0 // indirect
 	github.com/antonholmquist/jason v1.0.0 // indirect
 	github.com/go-resty/resty/v2 v2.7.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
