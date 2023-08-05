@@ -72,6 +72,25 @@ func slackBot() {
 	client.Run()
 }
 
+// Needed to retrieve the given command message
+func getLastMessage(channelID string, threadTs string) (lastMessage string, err error) {
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
+	}
+	messages, _, _, err := api.GetConversationReplies(&params)
+	if err != nil {
+		return "", err
+	}
+
+	return messages[len(messages)-1].Text, nil
+}
+
+func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
+	r := regexp.MustCompile(`\"[^\"]+\"|\S+`)
+	return r.FindAllString(commandMessage, -1)
+}
+
 type Command struct {
 	clobber   *bool
 	summarize *bool
@@ -119,6 +138,24 @@ func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 	return command, nil
 }
 
+func rememberCommand(channelID string, threadTs string) (command Command, err error) {
+	var lastMessage string
+	lastMessage, err = getLastMessage(
+		channelID,
+		threadTs,
+	)
+	if err != nil {
+		return command, err
+	}
+	commandMessage := tokenizeCommand(lastMessage)
+	command, err = interpretCommand(commandMessage)
+	if err != nil {
+		return command, err
+	}
+	return command, nil
+
+}
+
 // Code to run if someone mentions the bot.
 func handleMention(ev *slackevents.AppMentionEvent) {
 	command, err := interpretCommand(tokenizeCommand(ev.Text))
@@ -143,8 +180,11 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			fmt.Println(err)
 		}
 
-		// Ask user if they _really_ want to overwrite the page
-		if *(command.clobber) && !missing {
+		sectionExists, _ := sectionExists(*command.title, *command.section)
+
+		// If clobber is set and the page already exists,
+		// Send the user a BlockKit form and do nothing else.
+		if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
 			warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
 			confirmButton := slack.NewButtonBlockElement(
 				"confirm_wiki_page_overwrite",
@@ -214,125 +254,62 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			fmt.Printf("failed posting message: %v", err)
 		}
 	}
-	/*
-		if false { // Default behavior
-			// If someone @grab's in a thread, that implies that they want to save the entire contents of the thread.
-			// Get every message in the thread, and create a new wiki page with a transcription.
-
-	        // First off, check if the command message has a title. If we've made
-	        // it this far, it'll be the second token passed.
-
-
-
-	        // === old ===
-
-			_, possibleTitle, possibleSectionTitle, transcript := packageConversation(ev.Channel, ev.ThreadTimeStamp)
-
-			// Now that we have the final title, check if the article exists
-			newArticleURL, missing, err := getArticleURL(possibleTitle)
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			// If the title doesn't check out, check if the section does. If not,
-			// then scream.
-			sectionExists, err := sectionExists(possibleTitle, possibleSectionTitle)
-			if err != nil {
-				fmt.Println(err)
-			}
-			// If there is an existing article with that title
-			if !missing && (len(possibleSectionTitle) > 0 && sectionExists) {
-				// Ask user if they _really_ want to overwrite the page
-				warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
-				confirmButton := slack.NewButtonBlockElement(
-					"confirm_wiki_page_overwrite",
-					"CONFIRM",
-					slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
-				)
-				confirmButton.Style = "danger"
-				blockMsg := slack.MsgOptionBlocks(
-					slack.NewSectionBlock(
-						slack.NewTextBlockObject(
-							"mrkdwn",
-							warningMessage,
-							false,
-							false,
-						),
-						nil,
-						nil,
-					),
-					slack.NewActionBlock(
-						"",
-						confirmButton,
-						slack.NewButtonBlockElement(
-							"cancel_wiki_page_overwrite",
-							"CANCEL",
-							slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
-						),
-					),
-				)
-				_, err := api.PostEphemeral(
-					ev.Channel,
-					ev.User,
-					slack.MsgOptionTS(ev.ThreadTimeStamp),
-					blockMsg,
-				)
-				if err != nil {
-					log.Printf("Failed to send message: %v", err)
-				}
-			} else {
-				// If there is no article with that title, then
-				// go ahead and publish it, then send the user
-				// an ephemeral message of success
-				err = publishToWiki(false, possibleTitle, possibleSectionTitle, transcript)
-				if err != nil {
-					fmt.Println(err)
-				}
-
-				baseResponse := "Article saved! You can find it posted at: "
-				newArticleURL, _, err := getArticleURL(possibleTitle)
-				if err != nil {
-					fmt.Println(err)
-				}
-
-				// Post ephemeral message to user
-				_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("%s %s", baseResponse, newArticleURL), false))
-				if err != nil {
-					fmt.Printf("failed posting message: %v", err)
-				}
-			}
-		}*/
 }
 
 func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallback) {
 	actionID := callback.ActionCallback.BlockActions[0].ActionID
 	if actionID == "confirm_wiki_page_overwrite" {
-		client.Ack(*evt.Request) // Tell Slack we got him
+		client.Ack(*evt.Request)
 
-		//_, possibleTitle, _, transcript := packageConversation(callback.Container.ChannelID, callback.Container.ThreadTs)
+		// We need to get the command given from the transcript. It should
+		// be the last message we were asked to get.
+		channelID := callback.Container.ChannelID
+		threadTs := callback.Container.ThreadTs
 
-		possibleTitle := "chom"
-		transcript := "skz"
-
-		// Save the transcript to the wiki
-		err := publishToWiki(false, possibleTitle, "", transcript) // TODO: No section title? probably bug
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		// Update the ephemeral message
-		newArticleURL, _, err := getArticleURL(possibleTitle)
-		responseData := fmt.Sprintf(
-			`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
+		command, err := rememberCommand(
+			callback.Container.ChannelID,
 			callback.Container.ThreadTs,
-			newArticleURL,
 		)
-		reader := strings.NewReader(responseData)
-		_, err = http.Post(callback.ResponseURL, "application/json", reader)
 
 		if err != nil {
-			log.Printf("Failed updating message: %v", err)
+			log.Println(err)
+			return
 		}
+
+		// Basically, it's just "handleMention" but without the check for if
+		// the article is missing. This one should always just overwrite.
+		if command.appendHappened {
+			var transcript string
+
+			if *command.title == "" {
+				// Get title if not provided
+				command.title, transcript = generateTranscript(channelID, threadTs)
+			} else {
+				_, transcript = generateTranscript(channelID, threadTs)
+			}
+
+			// Publish the content to the wiki. If the article doesn't exist,
+			// then create it. If the section doesn't exist, then create it.
+			err = publishToWiki(false, *command.title, *command.section, transcript)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			// Update the ephemeral message
+			newArticleURL, _, err := getArticleURL(*command.title)
+			responseData := fmt.Sprintf(
+				`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
+				callback.Container.ThreadTs,
+				newArticleURL,
+			)
+			reader := strings.NewReader(responseData)
+			_, err = http.Post(callback.ResponseURL, "application/json", reader)
+
+			if err != nil {
+				log.Printf("Failed updating message: %v", err)
+			}
+		}
+
 	} else if actionID == "cancel_wiki_page_overwrite" {
 		client.Ack(*evt.Request) // Tell Slack we got him
 		// Update the ephemeral message
@@ -350,55 +327,6 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 		log.Printf("Unexpected Action Occured: %s.\n", actionID, callback.BlockID)
 	}
 }
-
-func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
-	r := regexp.MustCompile(`\"[^\"]+\"|\S+`)
-	return r.FindAllString(commandMessage, -1)
-}
-
-/*
-func packageConversation(channelID string, threadTs string) (commandMessage []string, possibleTitle string, possibleSectionTitle string, transcript string) {
-	// Get the conversation history
-	params := slack.GetConversationRepliesParameters{
-		ChannelID: channelID,
-		Timestamp: threadTs,
-	}
-	messages, _, _, err := api.GetConversationReplies(&params)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	// Theoretically, the last message in the convo should have the title,
-	// if any was submitted
-	commandMessage = tokenizeCommand(messages[len(messages)-1].Text)
-	// Make sure the title exists, and also isn't mistaken for a subcomamnd
-	subCommands := map[string]bool{"append": true, "range": true, "help": true, "summarize": true}
-	lookahead := 0
-	if len(commandMessage) > 2 && subCommands[commandMessage[1]] {
-		lookahead = 1
-	}
-	if len(commandMessage) > 1 + lookahead && !subCommands[commandMessage[1 + lookahead]] {
-		possibleTitle = strings.Trim(commandMessage[1 + lookahead], `\"`) // I think the tokenizer leaves the quotes.
-	}
-	// While we're at it, check for a sectionTitle
-	if len(commandMessage) > 2 + lookahead && !subCommands[commandMessage[2 + lookahead]] {
-		possibleSectionTitle = strings.Trim(commandMessage[2 + lookahead], `\"`) // I think the tokenizer leaves the quotes.
-	}
-
-	// Generate a wiki-friendly transcript of the conversation
-	var genTitle string
-	genTitle, transcript = generateTranscript(messages)
-	// Get a title if we need one.
-	if len(possibleTitle) == 0 {
-		possibleTitle = genTitle
-	}
-	if len(possibleSectionTitle) == 0 {
-		possibleSectionTitle = genTitle
-	}
-
-	return commandMessage, possibleTitle, possibleSectionTitle, transcript
-}
-*/
 
 // Takes in a slack thread and...
 // Gets peoples' CSH usernames and makes them into page links (TODO)

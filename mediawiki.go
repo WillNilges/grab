@@ -18,7 +18,24 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 
 	if sectionTitle != "" {
 		sectionExists, _ := sectionExists(title, sectionTitle)
-		if sectionExists && append {
+		if sectionExists && !append {
+			// If we're clobbering a section, we need to delete it and then
+			// re-make it. Absolutely not ideal, because if a section exists
+			// in the middle of the page, it will move it to the end.
+			index, err := findSectionId(title, sectionTitle)
+			if err != nil {
+				return err
+			}
+			parameters["section"] = index
+			parameters["text"] = ""
+			w.Edit(parameters) // Delete the section
+
+			parameters["section"] = "new"
+			parameters["sectiontitle"] = sectionTitle
+			parameters["text"] = convo
+			return w.Edit(parameters) // Make a new one
+
+		} else if sectionExists /* && append */ {
 			index, err := findSectionId(title, sectionTitle)
 			if err != nil {
 				return err
@@ -26,8 +43,8 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 			parameters["section"] = index
 		} else {
 			parameters["section"] = "new"
+			parameters["sectiontitle"] = sectionTitle
 		}
-		parameters["sectiontitle"] = sectionTitle
 	}
 
 	if append {
