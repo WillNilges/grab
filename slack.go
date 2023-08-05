@@ -112,8 +112,9 @@ func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 
 	command.clobber = parser.Flag("c", "clobber", &argparse.Options{Help: "Overwrite possibly existing content"})
 	command.summarize = parser.Flag("s", "summarize", &argparse.Options{Help: "Summarize content"})
+	// TODO: Add preview flag for summarizations?
 
-	appendCmd := parser.NewCommand("get", "Append this thread as new content to the wiki.")
+	appendCmd := parser.NewCommand("grab", "Append this thread as new content to the wiki.")
 	command.title = appendCmd.StringPositional(&argparse.Options{Required: true, Help: "Title"})
 	command.section = appendCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
 
@@ -123,6 +124,17 @@ func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 	rangeTitle := rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Title"})
 	rangeSection := rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
 
+	// Redneck's version of "Default Command" because argparse doesn't support default commands
+	// If the number of tokens is <= 1 or if the second token is not a recognized keyword/command,
+	// then automatically slip "grab" in there
+	subCommands := map[string]bool{"grab": true, "range": true, "help": true}
+	if len(tokenizedCommand) <= 1 {
+		tokenizedCommand = append(tokenizedCommand, "grab")
+	} else if !subCommands[tokenizedCommand[1]] {
+		tokenizedCommand = append(tokenizedCommand[:2], tokenizedCommand[1:]...)
+		tokenizedCommand[1] = "grab"
+	}
+	
 	parser.Parse(tokenizedCommand)
 
 	command.appendHappened = appendCmd.Happened()
