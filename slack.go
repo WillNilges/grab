@@ -88,7 +88,16 @@ func getLastMessage(channelID string, threadTs string) (lastMessage string, err 
 
 func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
 	r := regexp.MustCompile(`\"[^\"]+\"|\S+`)
-	return r.FindAllString(commandMessage, -1)
+	tokenizedCommandMessage = r.FindAllString(commandMessage, -1)
+
+	// Oh man this is a bad way to trim these guys
+	for index, token := range tokenizedCommandMessage {
+		trimmed := strings.Trim(token, `"`)
+		//trimmed = strings.Trim(token, `'`) // I dunno why doing this puts the quotes back....
+		tokenizedCommandMessage[index] = trimmed
+	}
+
+	return tokenizedCommandMessage
 }
 
 type Command struct {
