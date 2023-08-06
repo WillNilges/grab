@@ -2,6 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"bytes"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"github.com/EricMCarroll/go-mwclient"
 )
 
 // Helper function for putting things on the wiki. Can easily control how content
@@ -56,6 +62,75 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 
 	// Make the request.
 	return w.Edit(parameters)
+}
+
+func uploadToWiki(path string) (err error) {
+	// Open the file
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Get csrf token
+	csrfToken, err := w.GetToken(mwclient.CSRFToken)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(csrfToken)
+
+	// Create a new HTTP request with the CSRF token
+	url := config.WikiURL // Replace with your MediaWiki API endpoint
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	writer.WriteField("token", csrfToken)
+	writer.WriteField("action", "upload")
+	writer.WriteField("format", "json")
+	writer.WriteField("filename", "file.jpg")
+	writer.WriteField("text", "Description of the uploaded file.")
+	part, err := writer.CreateFormFile("file", file.Name())
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, file)
+	if err != nil {
+		return err
+	}
+	writer.Close()
+
+
+	// Make the POST request to upload the file
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Process the response
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("upload failed with status code %d", resp.StatusCode)
+	}
+
+	// You might want to further process the response here
+
+	fmt.Println(resp)
+	
+    responseBody, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return err
+    }
+    fmt.Println("Response Body:", string(responseBody))
+
+
+	return nil
 }
 
 func getArticleURL(title string) (url string, missing bool, err error) {

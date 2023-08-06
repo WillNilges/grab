@@ -389,26 +389,103 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 	var pureConversation []slack.Message
 	conversationUsers := map[string]string{}
 	for _, message := range conversation {
-		if message.User != authTestResponse.UserID && !strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
-			pureConversation = append(pureConversation, message)
 
-			// Translate the user id to a user name
-			var msgUser *slack.User
-			if len(conversationUsers[message.User]) == 0 {
-				msgUser, err = api.GetUserInfo(message.User)
-				if err != nil {
-					fmt.Println(err)
-				} else {
-					conversationUsers[message.User] = msgUser.Name
-				}
+		// Don't include messages that mention Grab.
+		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) { 
+			continue
+		}
+		pureConversation = append(pureConversation, message)
+
+		// Translate the user id to a user name
+		var msgUser *slack.User
+		if len(conversationUsers[message.User]) == 0 {
+			msgUser, err = api.GetUserInfo(message.User)
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				conversationUsers[message.User] = msgUser.Name
 			}
-			var msgUserName string
-			msgUserName = conversationUsers[message.User]
+		}
+		var msgUserName string
+		msgUserName = conversationUsers[message.User]
 
-			transcript += msgUserName + ": " + message.Text + "\n\n"
-			fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+		transcript += msgUserName + ": " + message.Text + "\n\n"
+		fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+
+		// Check for attachements
+		for _, attachment := range message.Attachments {
+			fmt.Println("Attachment!!!!")
+			// Dead-simple way to grab text attachments.
+			if attachment.Text != "" {
+				fmt.Println(attachment.Text)
+				transcript += "\n\n<pre>" + attachment.Text + "</pre>"
+			}
+		}
+
+		// I guess files are different.
+		for _, file := range message.Files {
+			fmt.Println("I guess files are different.")
+			fmt.Println(file.Mimetype)
+			fmt.Println(file.URLPrivateDownload)
+			/*
+			Check the file type.
+			If it's an image, then check the File ID. Create a file in /tmp or
+			something, download it, then upload it to MediaWiki.
+			*/
+			if strings.Contains(file.Mimetype, "image") {
+				// Download the file from Slack
+				path := fmt.Sprintf("/tmp/%s", file.Name)
+				outputFile, err := os.Create(path)
+				if err != nil {
+					fmt.Println("Error creating output file:", err)
+					return
+				}
+				err = client.GetFile(file.URLPrivateDownload, outputFile)
+				defer outputFile.Close()
+				fmt.Printf("File created at %s", path)
+
+				// Upload it to MediaWiki
+				err = uploadToWiki(path)
+				// It'll be like uhhh [[File:name.jpg]] or whatever.
+			}
 		}
 	}
 
 	return &pureConversation[0].Text, transcript
 }
+
+/*
+func downloadFile(fileID string) (path string) {
+	// TODO: We could totally get files in the background IG. context.Context
+    fileInfo, _, _, err := api.GetFileInfo(fileID, 0, 0) 
+    if err != nil {
+        fmt.Println("Error getting file info:", err)
+        return
+    }
+
+    // Create a file to write the downloaded data
+	path = fmt.Sprintf("/tmp/%s",fileInfo.Name)
+    outputFile, err := os.Create(path)
+    if err != nil {
+        fmt.Println("Error creating output file:", err)
+        return
+    }
+    defer outputFile.Close()
+	//defer os.Delete(path)
+
+    // Download the file and write its content to the output file
+    fileReader, err := api.GetFile(context.Background(), fileID, 0)
+    if err != nil {
+        fmt.Println("Error getting file reader:", err)
+        return
+    }
+
+    _, err = io.Copy(outputFile, fileReader)
+    if err != nil {
+        fmt.Println("Error writing file data:", err)
+        return
+    }
+
+    fmt.Printf("File downloaded successfully at %s", path)	
+	return path
+} */

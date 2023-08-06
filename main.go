@@ -95,5 +95,10 @@ func init() {
 }
 
 func main() {
-	slackBot()
+	//slackBot()
+	err := uploadToWiki("/tmp/long-tailed-duck-137161.jpg")
+	if err != nil {
+		fmt.Println("Goddammit")
+		fmt.Println(err)
+	}
 }
