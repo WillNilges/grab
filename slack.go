@@ -424,7 +424,6 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 
 		// I guess files are different.
 		for _, file := range message.Files {
-			fmt.Println("I guess files are different.")
 			fmt.Println(file.Mimetype)
 			fmt.Println(file.URLPrivateDownload)
 			/*
@@ -434,19 +433,30 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 			*/
 			if strings.Contains(file.Mimetype, "image") {
 				// Download the file from Slack
-				path := fmt.Sprintf("/tmp/%s", file.Name)
+				basename := fmt.Sprintf("%d-%s", time.Now().Unix(), file.Name)
+				path := fmt.Sprintf("/tmp/%s", basename)
 				tempFile, err := os.Create(path)
+				//defer os.Remove(path)
 				if err != nil {
 					fmt.Println("Error creating output file:", err)
 					return
 				}
 				err = client.GetFile(file.URLPrivateDownload, tempFile)
-				defer tempFile.Close()
-				fmt.Printf("File created at %s", path)
+				if err != nil {
+					log.Println("Error getting file from Slack: ", err)
+					return
+				}
+				fmt.Printf("File created at %s\n", path)
+
+				tempFile.Close()
 
 				// Upload it to MediaWiki
-				err = uploadToWiki(tempFile)
+				err = uploadToWiki(path)
+				if err != nil {
+					log.Println("Error uploading file: ", err)
+				}
 				// It'll be like uhhh [[File:name.jpg]] or whatever.
+				transcript += fmt.Sprintf("\n\n[[File:%s]]", basename)
 			}
 		}
 	}
@@ -454,38 +464,3 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 	return &pureConversation[0].Text, transcript
 }
 
-/*
-func downloadFile(fileID string) (path string) {
-	// TODO: We could totally get files in the background IG. context.Context
-    fileInfo, _, _, err := api.GetFileInfo(fileID, 0, 0)
-    if err != nil {
-        fmt.Println("Error getting file info:", err)
-        return
-    }
-
-    // Create a file to write the downloaded data
-	path = fmt.Sprintf("/tmp/%s",fileInfo.Name)
-    outputFile, err := os.Create(path)
-    if err != nil {
-        fmt.Println("Error creating output file:", err)
-        return
-    }
-    defer outputFile.Close()
-	//defer os.Delete(path)
-
-    // Download the file and write its content to the output file
-    fileReader, err := api.GetFile(context.Background(), fileID, 0)
-    if err != nil {
-        fmt.Println("Error getting file reader:", err)
-        return
-    }
-
-    _, err = io.Copy(outputFile, fileReader)
-    if err != nil {
-        fmt.Println("Error writing file data:", err)
-        return
-    }
-
-    fmt.Printf("File downloaded successfully at %s", path)
-	return path
-} */

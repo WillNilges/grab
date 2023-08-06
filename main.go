@@ -95,12 +95,5 @@ func init() {
 }
 
 func main() {
-	//slackBot()
-	file, err := os.Open("/tmp/duck.jpg")
-	defer file.Close()
-	err = uploadToWiki(file)
-	if err != nil {
-		fmt.Println("Goddammit")
-		fmt.Println(err)
-	}
+	slackBot()
 }

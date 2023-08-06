@@ -69,7 +69,12 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	return w.Edit(parameters)
 }
 
-func uploadToWiki(file *os.File) (err error) {
+func uploadToWiki(path string) (err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+
 	// Set up an HTTP client
 	// TODO: Can we just hijack the mwclient's http client?
 	cookieJar, _ := cookiejar.New(nil)
@@ -101,6 +106,7 @@ func uploadToWiki(file *os.File) (err error) {
 	}
 	// Extract the basename from the file's name
 	basename := filepath.Base(fileInfo.Name())
+	fmt.Println("File size: ", fileInfo.Size())
 
 	// Parameters for file
 	writer.WriteField("action", "upload")
