@@ -5,8 +5,12 @@ import (
 	"os"
 	"bytes"
 	"io"
+	"time"
+	"log"
 	"mime/multipart"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"github.com/EricMCarroll/go-mwclient"
 )
 
@@ -65,65 +69,63 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 }
 
 func uploadToWiki(path string) (err error) {
-	// Open the file
-	file, err := os.Open(path)
-	if err != nil {
-		return err
+	cookieJar, _ := cookiejar.New(nil)
+	client := &http.Client{
+		Timeout: time.Second * 10,
+		Jar: cookieJar,
 	}
-	defer file.Close()
 
+	// Manually add a cookie to the cookie jar
+
+	// loginToken, err := w.GetToken(mwclient.LoginToken)
+	cookieURL, _ := url.Parse(config.WikiURL)
+	cookieJar.SetCookies(cookieURL, w.DumpCookies())
+
+	// New multipart writer.
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
 	// Get csrf token
 	csrfToken, err := w.GetToken(mwclient.CSRFToken)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(csrfToken)
-
-	// Create a new HTTP request with the CSRF token
-	url := config.WikiURL // Replace with your MediaWiki API endpoint
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	// Add new values to the set
 	writer.WriteField("token", csrfToken)
 	writer.WriteField("action", "upload")
 	writer.WriteField("format", "json")
-	writer.WriteField("filename", "file.jpg")
-	writer.WriteField("text", "Description of the uploaded file.")
-	part, err := writer.CreateFormFile("file", file.Name())
+	writer.WriteField("filename", "007button.gif")
+	writer.WriteField("comment", "Description of the uploaded file.")
+
+	fw, err := writer.CreateFormFile("file", "007button.gif")
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(part, file)
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(fw, file)
 	if err != nil {
 		return err
 	}
 	writer.Close()
+	req, err := http.NewRequest("POST", config.WikiURL, bytes.NewReader(body.Bytes()))
+	//q := req.URL.Query() // Get a copy of the query values.
 
+	//req.URL.RawQuery = q.Encode() // Encode and assign back to the original query.
 
-	// Make the POST request to upload the file
-	req, err := http.NewRequest("POST", url, body)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Process the response
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("upload failed with status code %d", resp.StatusCode)
+	rsp, _ := client.Do(req)
+	if rsp.StatusCode != http.StatusOK {
+		log.Printf("Request failed with response code: %d", rsp.StatusCode)
 	}
 
-	// You might want to further process the response here
-
-	fmt.Println(resp)
-	
-    responseBody, err := io.ReadAll(resp.Body)
+    responseBody, err := io.ReadAll(rsp.Body)
     if err != nil {
         return err
     }
