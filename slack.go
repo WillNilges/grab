@@ -15,6 +15,7 @@ import (
 	"net/http"
 
 	"github.com/akamensky/argparse"
+    "github.com/google/uuid"
 )
 
 func slackBot() {
@@ -433,7 +434,7 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 			*/
 			if strings.Contains(file.Mimetype, "image") {
 				// Download the file from Slack
-				basename := fmt.Sprintf("%d-%s", time.Now().Unix(), file.Name)
+				basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
 				path := fmt.Sprintf("/tmp/%s", basename)
 				tempFile, err := os.Create(path)
 				//defer os.Remove(path)
@@ -456,7 +457,7 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 					log.Println("Error uploading file: ", err)
 				}
 				// It'll be like uhhh [[File:name.jpg]] or whatever.
-				transcript += fmt.Sprintf("\n\n[[File:%s]]", basename)
+				transcript += fmt.Sprintf("[[File:%s:thumb]]\n\n", basename)
 			}
 		}
 	}
