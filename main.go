@@ -96,7 +96,9 @@ func init() {
 
 func main() {
 	//slackBot()
-	err := uploadToWiki("/tmp/007button.gif")
+	file, err := os.Open("/tmp/duck.jpg")
+	defer file.Close()
+	err = uploadToWiki(file)
 	if err != nil {
 		fmt.Println("Goddammit")
 		fmt.Println(err)

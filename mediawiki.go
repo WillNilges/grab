@@ -1,17 +1,18 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"bytes"
+	"fmt"
+	"github.com/EricMCarroll/go-mwclient"
 	"io"
-	"time"
 	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"github.com/EricMCarroll/go-mwclient"
+	"os"
+	"path/filepath"
+	"time"
 )
 
 // Helper function for putting things on the wiki. Can easily control how content
@@ -68,53 +69,57 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	return w.Edit(parameters)
 }
 
-func uploadToWiki(path string) (err error) {
+func uploadToWiki(file *os.File) (err error) {
+	// Set up an HTTP client
+	// TODO: Can we just hijack the mwclient's http client?
 	cookieJar, _ := cookiejar.New(nil)
 	client := &http.Client{
 		Timeout: time.Second * 10,
-		Jar: cookieJar,
+		Jar:     cookieJar,
 	}
 
-	// Manually add a cookie to the cookie jar
-
-	// loginToken, err := w.GetToken(mwclient.LoginToken)
+	// --- Authentication ---
+	// Steal cookies from the mediawiki library
 	cookieURL, _ := url.Parse(config.WikiURL)
 	cookieJar.SetCookies(cookieURL, w.DumpCookies())
 
-	// New multipart writer.
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	
 	// Get csrf token
 	csrfToken, err := w.GetToken(mwclient.CSRFToken)
 	if err != nil {
 		return err
 	}
 
-	// Add new values to the set
-	writer.WriteField("token", csrfToken)
+	// New multipart writer.
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Get the file's name
+	fileInfo, err := file.Stat()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	// Extract the basename from the file's name
+	basename := filepath.Base(fileInfo.Name())
+
+	// Parameters for file
 	writer.WriteField("action", "upload")
 	writer.WriteField("format", "json")
-	writer.WriteField("filename", "007button.gif")
-	writer.WriteField("comment", "Description of the uploaded file.")
+	writer.WriteField("filename", basename)
+	writer.WriteField("comment", "Attachment from Slack.")
+	writer.WriteField("token", csrfToken)
 
-	fw, err := writer.CreateFormFile("file", "007button.gif")
+	fw, err := writer.CreateFormFile("file", basename)
 	if err != nil {
 		return err
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
+
 	_, err = io.Copy(fw, file)
 	if err != nil {
 		return err
 	}
 	writer.Close()
 	req, err := http.NewRequest("POST", config.WikiURL, bytes.NewReader(body.Bytes()))
-	//q := req.URL.Query() // Get a copy of the query values.
-
-	//req.URL.RawQuery = q.Encode() // Encode and assign back to the original query.
 
 	if err != nil {
 		return err
@@ -125,12 +130,11 @@ func uploadToWiki(path string) (err error) {
 		log.Printf("Request failed with response code: %d", rsp.StatusCode)
 	}
 
-    responseBody, err := io.ReadAll(rsp.Body)
-    if err != nil {
-        return err
-    }
-    fmt.Println("Response Body:", string(responseBody))
-
+	responseBody, err := io.ReadAll(rsp.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Response Body:", string(responseBody))
 
 	return nil
 }

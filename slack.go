@@ -143,7 +143,7 @@ func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 		tokenizedCommand = append(tokenizedCommand[:2], tokenizedCommand[1:]...)
 		tokenizedCommand[1] = "grab"
 	}
-	
+
 	parser.Parse(tokenizedCommand)
 
 	command.appendHappened = appendCmd.Happened()
@@ -391,7 +391,7 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 	for _, message := range conversation {
 
 		// Don't include messages that mention Grab.
-		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) { 
+		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
 			continue
 		}
 		pureConversation = append(pureConversation, message)
@@ -428,24 +428,24 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 			fmt.Println(file.Mimetype)
 			fmt.Println(file.URLPrivateDownload)
 			/*
-			Check the file type.
-			If it's an image, then check the File ID. Create a file in /tmp or
-			something, download it, then upload it to MediaWiki.
+				Check the file type.
+				If it's an image, then check the File ID. Create a file in /tmp or
+				something, download it, then upload it to MediaWiki.
 			*/
 			if strings.Contains(file.Mimetype, "image") {
 				// Download the file from Slack
 				path := fmt.Sprintf("/tmp/%s", file.Name)
-				outputFile, err := os.Create(path)
+				tempFile, err := os.Create(path)
 				if err != nil {
 					fmt.Println("Error creating output file:", err)
 					return
 				}
-				err = client.GetFile(file.URLPrivateDownload, outputFile)
-				defer outputFile.Close()
+				err = client.GetFile(file.URLPrivateDownload, tempFile)
+				defer tempFile.Close()
 				fmt.Printf("File created at %s", path)
 
 				// Upload it to MediaWiki
-				err = uploadToWiki(path)
+				err = uploadToWiki(tempFile)
 				// It'll be like uhhh [[File:name.jpg]] or whatever.
 			}
 		}
@@ -457,7 +457,7 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 /*
 func downloadFile(fileID string) (path string) {
 	// TODO: We could totally get files in the background IG. context.Context
-    fileInfo, _, _, err := api.GetFileInfo(fileID, 0, 0) 
+    fileInfo, _, _, err := api.GetFileInfo(fileID, 0, 0)
     if err != nil {
         fmt.Println("Error getting file info:", err)
         return
@@ -486,6 +486,6 @@ func downloadFile(fileID string) (path string) {
         return
     }
 
-    fmt.Printf("File downloaded successfully at %s", path)	
+    fmt.Printf("File downloaded successfully at %s", path)
 	return path
 } */
