@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"github.com/EricMCarroll/go-mwclient"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"github.com/antonholmquist/jason"
 )
 
 // Helper function for putting things on the wiki. Can easily control how content
@@ -69,10 +71,10 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	return w.Edit(parameters)
 }
 
-func uploadToWiki(path string) (err error) {
+func uploadToWiki(path string) (filename string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Set up an HTTP client
@@ -91,7 +93,7 @@ func uploadToWiki(path string) (err error) {
 	// Get csrf token
 	csrfToken, err := w.GetToken(mwclient.CSRFToken)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// New multipart writer.
@@ -102,7 +104,7 @@ func uploadToWiki(path string) (err error) {
 	fileInfo, err := file.Stat()
 	if err != nil {
 		fmt.Println("Error:", err)
-		return
+		return "", err
 	}
 	// Extract the basename from the file's name
 	basename := filepath.Base(fileInfo.Name())
@@ -117,18 +119,18 @@ func uploadToWiki(path string) (err error) {
 
 	fw, err := writer.CreateFormFile("file", basename)
 	if err != nil {
-		return err
+		return basename, err
 	}
 
 	_, err = io.Copy(fw, file)
 	if err != nil {
-		return err
+		return basename, err
 	}
 	writer.Close()
 	req, err := http.NewRequest("POST", config.WikiURL, bytes.NewReader(body.Bytes()))
 
 	if err != nil {
-		return err
+		return basename, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	rsp, _ := client.Do(req)
@@ -138,11 +140,34 @@ func uploadToWiki(path string) (err error) {
 
 	responseBody, err := io.ReadAll(rsp.Body)
 	if err != nil {
-		return err
+		return basename, err
 	}
 	fmt.Println("Response Body:", string(responseBody))
 
-	return nil
+	// MediaWiki will get angery if we try to upload a duplicate file. It will
+	// kindly give us the name of the duplicate file, and we can just return that
+	// and automagically, clobbering works properly again.
+	if strings.Contains(string(responseBody), "duplicate") {
+		rspJson, _ := jason.NewObjectFromBytes(responseBody)
+		// Get the "duplicate" value
+		warnings, err := rspJson.GetObject("upload", "warnings")
+		if err != nil {
+			fmt.Println("Jason Error:", err)
+			return basename, err
+		}
+
+		duplicateArray, err := warnings.GetStringArray("duplicate")
+		if err != nil {
+			fmt.Println("Jason Error:", err)
+			return basename, err
+		}
+		if len(duplicateArray) > 0 {
+			log.Printf(`Warning: Found duplicate image "%s". Will use that one instead.`, duplicateArray[0])
+			return duplicateArray[0], nil
+		}
+	}
+
+	return basename, nil
 }
 
 func getArticleURL(title string) (url string, missing bool, err error) {

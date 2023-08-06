@@ -427,37 +427,45 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 		for _, file := range message.Files {
 			fmt.Println(file.Mimetype)
 			fmt.Println(file.URLPrivateDownload)
+			// Download the file from Slack
+			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
+			path := fmt.Sprintf("/tmp/%s", basename)
+			tempFile, err := os.Create(path)
+			defer os.Remove(path)
+			if err != nil {
+				fmt.Println("Error creating output file:", err)
+				return
+			}
+			err = client.GetFile(file.URLPrivateDownload, tempFile)
+			if err != nil {
+				log.Println("Error getting file from Slack: ", err)
+				return
+			}
+			fmt.Printf("File created at %s\n", path)
+			tempFile.Close()
 			/*
 				Check the file type.
 				If it's an image, then check the File ID. Create a file in /tmp or
 				something, download it, then upload it to MediaWiki.
 			*/
 			if strings.Contains(file.Mimetype, "image") {
-				// Download the file from Slack
-				basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
-				path := fmt.Sprintf("/tmp/%s", basename)
-				tempFile, err := os.Create(path)
-				//defer os.Remove(path)
-				if err != nil {
-					fmt.Println("Error creating output file:", err)
-					return
-				}
-				err = client.GetFile(file.URLPrivateDownload, tempFile)
-				if err != nil {
-					log.Println("Error getting file from Slack: ", err)
-					return
-				}
-				fmt.Printf("File created at %s\n", path)
-
-				tempFile.Close()
-
-				// Upload it to MediaWiki
-				err = uploadToWiki(path)
+				// Upload it to MediaWiki. For some reason, I can't just re-use
+				// the file header. The API doesn't like it.
+				var fileTitle string
+				fileTitle, err = uploadToWiki(path)
 				if err != nil {
 					log.Println("Error uploading file: ", err)
+					return
 				}
 				// It'll be like uhhh [[File:name.jpg]] or whatever.
-				transcript += fmt.Sprintf("[[File:%s:thumb]]\n\n", basename)
+				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+			} else if strings.Contains(file.Mimetype, "text") {
+				fileContents, err := os.ReadFile(path)
+				if err != nil {
+					log.Println("Error reading file: ", err)
+					return
+				}
+				transcript += file.Name + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
 			}
 		}
 	}
