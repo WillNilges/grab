@@ -10,4 +10,4 @@ FROM alpine:latest
 WORKDIR /
 
 COPY --from=builder /build/grab ./
-ENTRYPOINT ["./letmein2"]
+ENTRYPOINT ["./grab"]
