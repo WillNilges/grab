@@ -188,6 +188,8 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		return
 	}
 
+	var conversation []slack.Message
+
 	if command.appendHappened {
 		// Firstly, check if we have a ThreadTimeStamp. If not, scream.
 		if ev.ThreadTimeStamp == "" {
@@ -206,12 +208,11 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			return
 		}
 
-		conversation, err := getThreadConversation(ev.Channel, ev.ThreadTimeStamp)
+		conversation, err = getThreadConversation(ev.Channel, ev.ThreadTimeStamp)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		checkAndPublish(conversation, command, ev)
 	} else if command.rangeHappened {
 		// Use given message links to find their timestamps
 		// God I hate this fucking language
@@ -235,7 +236,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		}
 
 		// Get the conversation history
-		conversation, err := getConversation(ev.Channel, oldest_ts, latest_ts)
+		conversation, err = getConversation(ev.Channel, oldest_ts, latest_ts)
 		fmt.Printf("Oldest: %s, Latest: %s\n\n\n", oldest_ts, latest_ts)
 
 		// Reverse it so it's in chronological order
@@ -245,17 +246,15 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		if err != nil {
 			fmt.Printf("Could not get messages: %v", err)
 		}
-		checkAndPublish(conversation, command, ev)
 	} else {
 		// Post ephemeral message to user
 		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
 		if err != nil {
 			fmt.Printf("failed posting message: %v", err)
 		}
+		return
 	}
-}
 
-func checkAndPublish(conversation []slack.Message, command Command, ev *slackevents.AppMentionEvent) {
 	var transcript string
 	if *command.title == "" {
 		// Get title if not provided
@@ -303,6 +302,8 @@ func checkAndPublish(conversation []slack.Message, command Command, ev *slackeve
 	if err != nil {
 		fmt.Printf("failed posting message: %v", err)
 	}
+
+
 }
 
 func askToClobber(channel string, user string, timestamp string, newArticleURL string) {
