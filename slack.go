@@ -73,20 +73,6 @@ func slackBot() {
 	client.Run()
 }
 
-// Needed to retrieve the given command message
-func getLastMessage(channelID string, threadTs string) (lastMessage string, err error) {
-	params := slack.GetConversationRepliesParameters{
-		ChannelID: channelID,
-		Timestamp: threadTs,
-	}
-	messages, _, _, err := api.GetConversationReplies(&params)
-	if err != nil {
-		return "", err
-	}
-
-	return messages[len(messages)-1].Text, nil
-}
-
 func tokenizeCommand(commandMessage string) (tokenizedCommandMessage []string) {
 	r := regexp.MustCompile(`\"[^\"]+\"|\S+`)
 	tokenizedCommandMessage = r.FindAllString(commandMessage, -1)
@@ -118,7 +104,7 @@ type Range struct {
 }
 
 
-// AAAAAAAAAAAAAAAAAAAAAAAAAAAAa
+// Extract the timestamp from the given messages when performing a range command
 func trimRange(link string) (linkTs string) {
 	linkUrl := strings.Split(link, `/`)
 	linkTs = linkUrl[len(linkUrl)-1]
@@ -179,23 +165,6 @@ func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 		command.section = rangeSection
 	}
 
-	if err != nil {
-		return command, err
-	}
-	return command, nil
-}
-
-func rememberCommand(channelID string, threadTs string) (command Command, err error) {
-	var lastMessage string
-	lastMessage, err = getLastMessage(
-		channelID,
-		threadTs,
-	)
-	if err != nil {
-		return command, err
-	}
-	commandMessage := tokenizeCommand(lastMessage)
-	command, err = interpretCommand(commandMessage)
 	if err != nil {
 		return command, err
 	}
@@ -359,13 +328,24 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 		var command Command
 		var threadTs string
 		var err error
+
+		// Recalling the command sent by the user works differently
+		// depending on if you're looking at a thread or not.
 		if callback.Container.ThreadTs != "" {
 			threadTs = callback.Container.ThreadTs
-			command, err = rememberCommand(
-				callback.Container.ChannelID,
-				callback.Container.ThreadTs,
-			)
+			params := slack.GetConversationRepliesParameters{
+				ChannelID: channelID,
+				Timestamp: threadTs,
+			}
+			messages, _, _, err := api.GetConversationReplies(&params)
+			if err != nil {
+				log.Println(err)
+				return
+			}
 
+			lastMessage := messages[len(messages)-1].Text
+			commandMessage := tokenizeCommand(lastMessage)
+			command, err = interpretCommand(commandMessage)
 			if err != nil {
 				log.Println(err)
 				return
