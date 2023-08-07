@@ -206,56 +206,12 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			return
 		}
 
-		var transcript string
-
 		conversation, err := getThreadConversation(ev.Channel, ev.ThreadTimeStamp)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		if *command.title == "" {
-			// Get title if not provided
-			command.title, transcript = generateTranscript(conversation)
-		} else {
-			_, transcript = generateTranscript(conversation)
-		}
-
-		// Now that we have the final title, check if the article exists
-		newArticleURL, missing, err := getArticleURL(*command.title)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		sectionExists, _ := sectionExists(*command.title, *command.section)
-
-		// If clobber is set and the page already exists,
-		// Send the user a BlockKit form and do nothing else.
-		if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
-			askToClobber(ev.Channel, ev.User, ev.ThreadTimeStamp, newArticleURL)
-			return
-		}
-
-		// Publish the content to the wiki. If the article doesn't exist,
-		// then create it. If the section doesn't exist, then create it.
-		err = publishToWiki(!missing, *command.title, *command.section, transcript)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		// Now that it has been published and definitely exists, get
-		// the URL again
-		if missing {
-			newArticleURL, _, err = getArticleURL(*command.title)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}
-
-		// Post ephemeral message to user
-		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
-		if err != nil {
-			fmt.Printf("failed posting message: %v", err)
-		}
+		checkAndPublish(conversation, command, ev, false)
 	} else if command.rangeHappened {
 		// Use given message links to find their timestamps
 		// God I hate this fucking language
@@ -266,65 +222,91 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		oldest_ts = oldest_ts[1:index] + "." + oldest_ts[index:len(oldest_ts)-1-1] // Drop the p at position [0], and drop the angle bracket at the end
 		fmt.Println(oldest_ts)
 
+		var latest_ts string
+		if *command.rangeOpts.latest != "" { 
+			fmt.Println(*command.rangeOpts.latest)
+			latest_url := strings.Split(*command.rangeOpts.latest, `/`)
+			latest_ts = latest_url[len(latest_url)-1]
+			index := len(latest_ts)-1-1-6 // -1 because of the p, -1 because >, -6 because timestamp format
+			latest_ts = latest_ts[1:index] + "." + latest_ts[index:len(latest_ts)-1-1] // Drop the p at position [0], and drop the angle bracket at the end
+			fmt.Println(latest_ts)
+		}
+
 		// Get the conversation history
-		conversation, err := getConversation(ev.Channel, oldest_ts, "")
-		
+		conversation, err := getConversation(ev.Channel, oldest_ts, latest_ts)
+		fmt.Println("Oldest: %s, Latest: %s\n\n\n", oldest_ts, latest_ts)
+
+		// Reverse it so it's in chronological order
 		for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
 			conversation[i], conversation[j] = conversation[j], conversation[i]
 		}
 		if err != nil {
 			fmt.Printf("Could not get messages: %v", err)
 		}
-		var transcript string
-		if *command.title == "" {
-			// Get title if not provided
-			command.title, transcript = generateTranscript(conversation)
-		} else {
-			_, transcript = generateTranscript(conversation)
-		}
-
-		// Now that we have the final title, check if the article exists
-		newArticleURL, missing, err := getArticleURL(*command.title)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		sectionExists, _ := sectionExists(*command.title, *command.section)
-
-		// If clobber is set and the page already exists,
-		// Send the user a BlockKit form and do nothing else.
-		if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
-			askToClobber(ev.Channel, ev.User, ev.TimeStamp, newArticleURL)
-			return
-		}
-
-		// Publish the content to the wiki. If the article doesn't exist,
-		// then create it. If the section doesn't exist, then create it.
-		err = publishToWiki(!missing, *command.title, *command.section, transcript)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		// Now that it has been published and definitely exists, get
-		// the URL again
-		if missing {
-			newArticleURL, _, err = getArticleURL(*command.title)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}
-
-		// Post ephemeral message to user
-		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
-		if err != nil {
-			fmt.Printf("failed posting message: %v", err)
-		}
+		checkAndPublish(conversation, command, ev, false)
 	} else {
 		// Post ephemeral message to user
 		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
 		if err != nil {
 			fmt.Printf("failed posting message: %v", err)
 		}
+	}
+}
+
+func checkAndPublish(conversation []slack.Message, command Command, ev *slackevents.AppMentionEvent, thread bool) {
+	var timestamp string
+	if thread {
+		timestamp = ev.ThreadTimeStamp
+	} else {
+		timestamp = ev.TimeStamp
+	}
+
+	var transcript string
+	if *command.title == "" {
+		// Get title if not provided
+		command.title, transcript = generateTranscript(conversation)
+	} else {
+		_, transcript = generateTranscript(conversation)
+	}
+
+	// Now that we have the final title, check if the article exists
+	newArticleURL, missing, err := getArticleURL(*command.title)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	sectionExists, _ := sectionExists(*command.title, *command.section)
+
+	// If clobber is set and the page already exists,
+	// Send the user a BlockKit form and do nothing else.
+	if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
+		askToClobber(ev.Channel, ev.User, timestamp, newArticleURL)
+		return
+	}
+
+	// Publish the content to the wiki. If the article doesn't exist,
+	// then create it. If the section doesn't exist, then create it.
+	err = publishToWiki(!missing, *command.title, *command.section, transcript)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Now that it has been published and definitely exists, get
+	// the URL again
+	if missing {
+		newArticleURL, _, err = getArticleURL(*command.title)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
+	// Post ephemeral message to user
+	_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(timestamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
+	if err != nil {
+		fmt.Printf("failed posting message: %v", err)
 	}
 }
 
