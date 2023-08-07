@@ -208,11 +208,16 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 
 		var transcript string
 
+		conversation, err := getThreadConversation(ev.Channel, ev.ThreadTimeStamp)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 		if *command.title == "" {
 			// Get title if not provided
-			command.title, transcript = generateTranscript(ev.Channel, ev.ThreadTimeStamp)
+			command.title, transcript = generateTranscript(conversation)
 		} else {
-			_, transcript = generateTranscript(ev.Channel, ev.ThreadTimeStamp)
+			_, transcript = generateTranscript(conversation)
 		}
 
 		// Now that we have the final title, check if the article exists
@@ -226,43 +231,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		// If clobber is set and the page already exists,
 		// Send the user a BlockKit form and do nothing else.
 		if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
-			warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
-			confirmButton := slack.NewButtonBlockElement(
-				"confirm_wiki_page_overwrite",
-				"CONFIRM",
-				slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
-			)
-			confirmButton.Style = "danger"
-			blockMsg := slack.MsgOptionBlocks(
-				slack.NewSectionBlock(
-					slack.NewTextBlockObject(
-						"mrkdwn",
-						warningMessage,
-						false,
-						false,
-					),
-					nil,
-					nil,
-				),
-				slack.NewActionBlock(
-					"",
-					confirmButton,
-					slack.NewButtonBlockElement(
-						"cancel_wiki_page_overwrite",
-						"CANCEL",
-						slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
-					),
-				),
-			)
-			_, err := api.PostEphemeral(
-				ev.Channel,
-				ev.User,
-				slack.MsgOptionTS(ev.ThreadTimeStamp),
-				blockMsg,
-			)
-			if err != nil {
-				log.Printf("Failed to send message: %v", err)
-			}
+			askToClobber(ev.Channel, ev.User, ev.ThreadTimeStamp, newArticleURL)
 			return
 		}
 
@@ -298,25 +267,104 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		fmt.Println(oldest_ts)
 
 		// Get the conversation history
-		params := slack.GetConversationHistoryParameters{
-			ChannelID: ev.Channel,
-			Oldest: oldest_ts,
-			Inclusive: true,
+		conversation, err := getConversation(ev.Channel, oldest_ts, "")
+		
+		for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
+			conversation[i], conversation[j] = conversation[j], conversation[i]
 		}
-		conversation, err := api.GetConversationHistory(&params)
+		if err != nil {
+			fmt.Printf("Could not get messages: %v", err)
+		}
+		var transcript string
+		if *command.title == "" {
+			// Get title if not provided
+			command.title, transcript = generateTranscript(conversation)
+		} else {
+			_, transcript = generateTranscript(conversation)
+		}
+
+		// Now that we have the final title, check if the article exists
+		newArticleURL, missing, err := getArticleURL(*command.title)
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		fmt.Println(conversation)
+		sectionExists, _ := sectionExists(*command.title, *command.section)
 
+		// If clobber is set and the page already exists,
+		// Send the user a BlockKit form and do nothing else.
+		if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
+			askToClobber(ev.Channel, ev.User, ev.TimeStamp, newArticleURL)
+			return
+		}
 
+		// Publish the content to the wiki. If the article doesn't exist,
+		// then create it. If the section doesn't exist, then create it.
+		err = publishToWiki(!missing, *command.title, *command.section, transcript)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		// Now that it has been published and definitely exists, get
+		// the URL again
+		if missing {
+			newArticleURL, _, err = getArticleURL(*command.title)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+
+		// Post ephemeral message to user
+		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
+		if err != nil {
+			fmt.Printf("failed posting message: %v", err)
+		}
 	} else {
 		// Post ephemeral message to user
 		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
 		if err != nil {
 			fmt.Printf("failed posting message: %v", err)
 		}
+	}
+}
+
+func askToClobber(channel string, user string, timestamp string, newArticleURL string) {
+	warningMessage := fmt.Sprintf("A wiki article with this title already exists! (%s) Are you sure you want to *COMPLETELY OVERWRITE IT?*", newArticleURL)
+	confirmButton := slack.NewButtonBlockElement(
+		"confirm_wiki_page_overwrite",
+		"CONFIRM",
+		slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+	)
+	confirmButton.Style = "danger"
+	blockMsg := slack.MsgOptionBlocks(
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(
+				"mrkdwn",
+				warningMessage,
+				false,
+				false,
+			),
+			nil,
+			nil,
+		),
+		slack.NewActionBlock(
+			"",
+			confirmButton,
+			slack.NewButtonBlockElement(
+				"cancel_wiki_page_overwrite",
+				"CANCEL",
+				slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
+			),
+		),
+	)
+	_, err := api.PostEphemeral(
+		channel,
+		user,
+		slack.MsgOptionTS(timestamp),
+		blockMsg,
+	)
+	if err != nil {
+		log.Printf("Failed to send message: %v", err)
 	}
 }
 
@@ -345,18 +393,24 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 		if command.appendHappened {
 			var transcript string
 
+			conversation, err := getThreadConversation(channelID, threadTs)
+			if err != nil {
+				log.Println(err)
+				return
+			}
 			if *command.title == "" {
 				// Get title if not provided
-				command.title, transcript = generateTranscript(channelID, threadTs)
+				command.title, transcript = generateTranscript(conversation)
 			} else {
-				_, transcript = generateTranscript(channelID, threadTs)
+				_, transcript = generateTranscript(conversation)
 			}
 
 			// Publish the content to the wiki. If the article doesn't exist,
 			// then create it. If the section doesn't exist, then create it.
 			err = publishToWiki(false, *command.title, *command.section, transcript)
 			if err != nil {
-				fmt.Println(err)
+				log.Println(err)
+				return
 			}
 
 			// Update the ephemeral message
@@ -392,23 +446,41 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 	}
 }
 
+func getConversation(channelID string, oldest string, latest string) (conversation []slack.Message, err error) {
+	params := slack.GetConversationHistoryParameters{
+		ChannelID: channelID,
+		Inclusive: true,
+		Oldest: oldest,
+		Latest: latest,
+	}
+	var response *slack.GetConversationHistoryResponse
+	response, err = api.GetConversationHistory(&params)
+	if err != nil {
+		return conversation, err
+	}
+	return response.Messages, nil
+}
+
+func getThreadConversation(channelID string, threadTs string) (conversation []slack.Message, err error) {
+	// Get the conversation history
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
+	}
+	conversation, _, _, err = api.GetConversationReplies(&params)
+	if err != nil {
+		return conversation, err
+	}
+	return conversation, nil
+}
+
 // Takes in a slack thread and...
 // Gets peoples' CSH usernames and makes them into page links (TODO)
 // Removes any mention of Grab
 // Adds human readable timestamp to the top of the transcript
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-func generateTranscript(channelID string, threadTs string) (title *string, transcript string) {
-	// Get the conversation history
-	params := slack.GetConversationRepliesParameters{
-		ChannelID: channelID,
-		Timestamp: threadTs,
-	}
-	conversation, _, _, err := api.GetConversationReplies(&params)
-	if err != nil {
-		fmt.Println(err)
-	}
-
+func generateTranscript(conversation []slack.Message) (title *string, transcript string) {
 	// Define the desired format layout
 	timeLayout := "2006-01-02 at 15:04"
 	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
