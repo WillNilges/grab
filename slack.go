@@ -211,30 +211,32 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			log.Println(err)
 			return
 		}
-		checkAndPublish(conversation, command, ev, false)
+		checkAndPublish(conversation, command, ev)
 	} else if command.rangeHappened {
 		// Use given message links to find their timestamps
 		// God I hate this fucking language
 		fmt.Println(*command.rangeOpts.oldest)
 		oldest_url := strings.Split(*command.rangeOpts.oldest, `/`)
 		oldest_ts := oldest_url[len(oldest_url)-1]
-		index := len(oldest_ts)-1-1-6 // -1 because of the p, -1 because >, -6 because timestamp format
-		oldest_ts = oldest_ts[1:index] + "." + oldest_ts[index:len(oldest_ts)-1-1] // Drop the p at position [0], and drop the angle bracket at the end
+		oldest_ts = oldest_ts[1:len(oldest_ts)-2]
+		index := len(oldest_ts)-6
+		oldest_ts = oldest_ts[:index] + "." + oldest_ts[index:]
 		fmt.Println(oldest_ts)
 
 		var latest_ts string
 		if *command.rangeOpts.latest != "" { 
 			fmt.Println(*command.rangeOpts.latest)
 			latest_url := strings.Split(*command.rangeOpts.latest, `/`)
-			latest_ts = latest_url[len(latest_url)-1]
-			index := len(latest_ts)-1-1-6 // -1 because of the p, -1 because >, -6 because timestamp format
-			latest_ts = latest_ts[1:index] + "." + latest_ts[index:len(latest_ts)-1-1] // Drop the p at position [0], and drop the angle bracket at the end
+			latest_ts := latest_url[len(latest_url)-1]
+			latest_ts = latest_ts[1:len(latest_ts)-2]
+			index := len(latest_ts)-6
+			latest_ts = latest_ts[:index] + "." + latest_ts[index:]
 			fmt.Println(latest_ts)
 		}
 
 		// Get the conversation history
 		conversation, err := getConversation(ev.Channel, oldest_ts, latest_ts)
-		fmt.Println("Oldest: %s, Latest: %s\n\n\n", oldest_ts, latest_ts)
+		fmt.Printf("Oldest: %s, Latest: %s\n\n\n", oldest_ts, latest_ts)
 
 		// Reverse it so it's in chronological order
 		for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
@@ -243,7 +245,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 		if err != nil {
 			fmt.Printf("Could not get messages: %v", err)
 		}
-		checkAndPublish(conversation, command, ev, false)
+		checkAndPublish(conversation, command, ev)
 	} else {
 		// Post ephemeral message to user
 		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
@@ -253,14 +255,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 	}
 }
 
-func checkAndPublish(conversation []slack.Message, command Command, ev *slackevents.AppMentionEvent, thread bool) {
-	var timestamp string
-	if thread {
-		timestamp = ev.ThreadTimeStamp
-	} else {
-		timestamp = ev.TimeStamp
-	}
-
+func checkAndPublish(conversation []slack.Message, command Command, ev *slackevents.AppMentionEvent) {
 	var transcript string
 	if *command.title == "" {
 		// Get title if not provided
@@ -281,7 +276,7 @@ func checkAndPublish(conversation []slack.Message, command Command, ev *slackeve
 	// If clobber is set and the page already exists,
 	// Send the user a BlockKit form and do nothing else.
 	if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
-		askToClobber(ev.Channel, ev.User, timestamp, newArticleURL)
+		askToClobber(ev.Channel, ev.User, ev.ThreadTimeStamp, newArticleURL)
 		return
 	}
 
@@ -304,7 +299,7 @@ func checkAndPublish(conversation []slack.Message, command Command, ev *slackeve
 	}
 
 	// Post ephemeral message to user
-	_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(timestamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
+	_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
 	if err != nil {
 		fmt.Printf("failed posting message: %v", err)
 	}
