@@ -356,16 +356,47 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 		// We need to get the command given from the transcript. It should
 		// be the last message we were asked to get.
 		channelID := callback.Container.ChannelID
-		threadTs := callback.Container.ThreadTs
+		var command Command
+		var threadTs string
+		var err error
+		if callback.Container.ThreadTs != "" {
+			threadTs = callback.Container.ThreadTs
+			command, err = rememberCommand(
+				callback.Container.ChannelID,
+				callback.Container.ThreadTs,
+			)
 
-		command, err := rememberCommand(
-			callback.Container.ChannelID,
-			callback.Container.ThreadTs,
-		)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		} else {
+			threadTs = callback.Container.MessageTs
+			history, _ := getConversation(channelID, "", threadTs)
 
-		if err != nil {
-			log.Println(err)
-			return
+			// Call the AuthTest method to check the authentication
+			// and retrieve the bot's user ID
+			authTestResponse, err := api.AuthTest()
+			if err != nil {
+				log.Fatalf("Error calling AuthTest: %s", err)
+			}
+
+			// Print the bot's user ID
+			log.Printf("Bot UserID: %s\n", authTestResponse.UserID)
+
+			// Look for the first mention of Grab; That'll be the
+			// latest command
+			for _, message := range history {
+				if strings.Contains(message.Text, authTestResponse.UserID) {
+					log.Println(message.Timestamp, ": ", message.Text) 
+					commandMessage := tokenizeCommand(message.Text)
+					command, err = interpretCommand(commandMessage)
+					if err != nil {
+						log.Fatalf("Error: %s", err)
+					}
+					break
+				}
+			}
 		}
 
 		var conversation []slack.Message
@@ -414,7 +445,7 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 		newArticleURL, _, err := getArticleURL(*command.title)
 		responseData := fmt.Sprintf(
 			`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
-			callback.Container.ThreadTs,
+			threadTs,
 			newArticleURL,
 		)
 		reader := strings.NewReader(responseData)
