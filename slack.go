@@ -126,7 +126,7 @@ func formatRange(oldest string, latest string) (oldestTs string, latestTs string
 	return oldestTs, latestTs
 }
 
-const helpMessage string = "To grab a thread, ping me, and optionally provide an article title and section title.\nYou can also pass a `-c` flag to OVERWRITE whatever is already on the wiki at the given article/section."
+const helpMessage string = "- To grab a thread, ping me, and optionally provide an article title and section title.\n- To grab a range of messages outside a thread, ping me with the message, \"range <link to earliest message> <link to latest message>\" and provide an article and section title if you want.\n- You can also pass a `-c` flag to OVERWRITE whatever is already on the wiki at the given article/section."
 
 func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 	parser := argparse.NewParser("grab", "A command-line tool for grabbing content")
