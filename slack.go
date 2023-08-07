@@ -117,6 +117,8 @@ type Range struct {
 	lastMessage  *string
 }
 
+const helpMessage string = "To grab a thread, ping me, and optionally provide an article title and section title.\nYou can also pass a `-c` flag to OVERWRITE whatever is already on the wiki at the given article/section."
+
 func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 	parser := argparse.NewParser("grab", "A command-line tool for grabbing content")
 
@@ -187,6 +189,24 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 	}
 
 	if command.appendHappened {
+		
+		// Firstly, check if we have a ThreadTimeStamp. If not, scream.
+		if ev.ThreadTimeStamp == "" {
+			_, err = client.PostEphemeral(
+				ev.Channel,
+				ev.User,
+				slack.MsgOptionTS(ev.ThreadTimeStamp),
+				slack.MsgOptionText(
+					fmt.Sprintf("Sorry, I only work inside threads!\n%s", helpMessage),
+					false,
+				),
+			)
+			if err != nil {
+				fmt.Printf("failed posting message: %v", err)
+			}
+			return
+		}
+
 		var transcript string
 
 		if *command.title == "" {
@@ -271,7 +291,7 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 	} else if command.rangeHappened {
 	} else {
 		// Post ephemeral message to user
-		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText("Unrecognized command", false))
+		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
 		if err != nil {
 			fmt.Printf("failed posting message: %v", err)
 		}
