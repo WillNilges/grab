@@ -117,6 +117,29 @@ type Range struct {
 	latest  *string
 }
 
+
+// AAAAAAAAAAAAAAAAAAAAAAAAAAAAa
+func trimRange(link string) (linkTs string) {
+	linkUrl := strings.Split(link, `/`)
+	linkTs = linkUrl[len(linkUrl)-1]
+	linkTs = linkTs[1:len(linkTs)-1]
+	index := len(linkTs)-6
+	linkTs = linkTs[:index] + "." + linkTs[index:]
+	return linkTs
+}
+
+func formatRange(oldest string, latest string) (oldestTs string, latestTs string) {
+	// Use given message links to find their timestamps
+	// God I hate this fucking language
+	oldestTs = trimRange(oldest)
+
+	if latest != "" { 
+		latestTs = trimRange(latest)
+	}
+
+	return oldestTs, latestTs
+}
+
 const helpMessage string = "To grab a thread, ping me, and optionally provide an article title and section title.\nYou can also pass a `-c` flag to OVERWRITE whatever is already on the wiki at the given article/section."
 
 func interpretCommand(tokenizedCommand []string) (command Command, err error) {
@@ -177,7 +200,6 @@ func rememberCommand(channelID string, threadTs string) (command Command, err er
 		return command, err
 	}
 	return command, nil
-
 }
 
 // Code to run if someone mentions the bot.
@@ -214,37 +236,17 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			return
 		}
 	} else if command.rangeHappened {
-		// Use given message links to find their timestamps
-		// God I hate this fucking language
-		fmt.Println(*command.rangeOpts.oldest)
-		oldest_url := strings.Split(*command.rangeOpts.oldest, `/`)
-		oldest_ts := oldest_url[len(oldest_url)-1]
-		oldest_ts = oldest_ts[1:len(oldest_ts)-2]
-		index := len(oldest_ts)-6
-		oldest_ts = oldest_ts[:index] + "." + oldest_ts[index:]
-		fmt.Println(oldest_ts)
-
-		var latest_ts string
-		if *command.rangeOpts.latest != "" { 
-			fmt.Println(*command.rangeOpts.latest)
-			latest_url := strings.Split(*command.rangeOpts.latest, `/`)
-			latest_ts := latest_url[len(latest_url)-1]
-			latest_ts = latest_ts[1:len(latest_ts)-2]
-			index := len(latest_ts)-6
-			latest_ts = latest_ts[:index] + "." + latest_ts[index:]
-			fmt.Println(latest_ts)
-		}
+		oldestTs, latestTs := formatRange(*command.rangeOpts.oldest, *command.rangeOpts.latest)
 
 		// Get the conversation history
-		conversation, err = getConversation(ev.Channel, oldest_ts, latest_ts)
-		fmt.Printf("Oldest: %s, Latest: %s\n\n\n", oldest_ts, latest_ts)
+		conversation, err = getConversation(ev.Channel, oldestTs, latestTs)
+		if err != nil {
+			fmt.Printf("Could not get messages: %v", err)
+		}
 
 		// Reverse it so it's in chronological order
 		for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
 			conversation[i], conversation[j] = conversation[j], conversation[i]
-		}
-		if err != nil {
-			fmt.Printf("Could not get messages: %v", err)
 		}
 	} else {
 		// Post ephemeral message to user
@@ -366,44 +368,60 @@ func handleInteraction(evt *socketmode.Event, callback *slack.InteractionCallbac
 			return
 		}
 
+		var conversation []slack.Message
+		var transcript string
+
 		// Basically, it's just "handleMention" but without the check for if
 		// the article is missing. This one should always just overwrite.
 		if command.appendHappened {
-			var transcript string
-
-			conversation, err := getThreadConversation(channelID, threadTs)
+			conversation, err = getThreadConversation(channelID, threadTs)
 			if err != nil {
 				log.Println(err)
 				return
 			}
-			if *command.title == "" {
-				// Get title if not provided
-				command.title, transcript = generateTranscript(conversation)
-			} else {
-				_, transcript = generateTranscript(conversation)
-			}
+		} else if command.rangeHappened {
+			oldestTs, latestTs := formatRange(*command.rangeOpts.oldest, *command.rangeOpts.latest)
 
-			// Publish the content to the wiki. If the article doesn't exist,
-			// then create it. If the section doesn't exist, then create it.
-			err = publishToWiki(false, *command.title, *command.section, transcript)
+			// Get the conversation history
+			conversation, err = getConversation(channelID, oldestTs, latestTs)
 			if err != nil {
-				log.Println(err)
+				fmt.Printf("Could not get messages: %v", err)
 				return
 			}
 
-			// Update the ephemeral message
-			newArticleURL, _, err := getArticleURL(*command.title)
-			responseData := fmt.Sprintf(
-				`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
-				callback.Container.ThreadTs,
-				newArticleURL,
-			)
-			reader := strings.NewReader(responseData)
-			_, err = http.Post(callback.ResponseURL, "application/json", reader)
-
-			if err != nil {
-				log.Printf("Failed updating message: %v", err)
+			// Reverse it so it's in chronological order
+			for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
+				conversation[i], conversation[j] = conversation[j], conversation[i]
 			}
+		}
+
+		if *command.title == "" {
+			// Get title if not provided
+			command.title, transcript = generateTranscript(conversation)
+		} else {
+			_, transcript = generateTranscript(conversation)
+		}
+
+		// Publish the content to the wiki. If the article doesn't exist,
+		// then create it. If the section doesn't exist, then create it.
+		err = publishToWiki(false, *command.title, *command.section, transcript)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		// Update the ephemeral message
+		newArticleURL, _, err := getArticleURL(*command.title)
+		responseData := fmt.Sprintf(
+			`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
+			callback.Container.ThreadTs,
+			newArticleURL,
+		)
+		reader := strings.NewReader(responseData)
+		_, err = http.Post(callback.ResponseURL, "application/json", reader)
+
+		if err != nil {
+			log.Printf("Failed updating message: %v", err)
 		}
 
 	} else if actionID == "cancel_wiki_page_overwrite" {
