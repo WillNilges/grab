@@ -32,7 +32,7 @@ func init() {
 	// Load environment variables, one way or another
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Println("Couldn't load .env file")
 	}
 
 	// ------- mediawiki --------
