@@ -113,8 +113,8 @@ type Command struct {
 	rangeOpts      Range
 }
 type Range struct {
-	firstMessage *string
-	lastMessage  *string
+	oldest *string
+	latest  *string
 }
 
 const helpMessage string = "To grab a thread, ping me, and optionally provide an article title and section title.\nYou can also pass a `-c` flag to OVERWRITE whatever is already on the wiki at the given article/section."
@@ -131,8 +131,8 @@ func interpretCommand(tokenizedCommand []string) (command Command, err error) {
 	command.section = appendCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
 
 	rangeCmd := parser.NewCommand("range", "Append messages between the given links to the wiki, inclusive")
-	command.rangeOpts.firstMessage = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "First chronological message to be saved"})
-	command.rangeOpts.lastMessage = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "Last chronological message to be saved"})
+	command.rangeOpts.oldest = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "First chronological message to be saved"})
+	command.rangeOpts.latest = rangeCmd.StringPositional(&argparse.Options{Required: true, Help: "Last chronological message to be saved"})
 	rangeTitle := rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Title"})
 	rangeSection := rangeCmd.StringPositional(&argparse.Options{Required: false, Help: "Section"})
 
@@ -189,7 +189,6 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 	}
 
 	if command.appendHappened {
-		
 		// Firstly, check if we have a ThreadTimeStamp. If not, scream.
 		if ev.ThreadTimeStamp == "" {
 			_, err = client.PostEphemeral(
@@ -289,6 +288,29 @@ func handleMention(ev *slackevents.AppMentionEvent) {
 			fmt.Printf("failed posting message: %v", err)
 		}
 	} else if command.rangeHappened {
+		// Use given message links to find their timestamps
+		// God I hate this fucking language
+		fmt.Println(*command.rangeOpts.oldest)
+		oldest_url := strings.Split(*command.rangeOpts.oldest, `/`)
+		oldest_ts := oldest_url[len(oldest_url)-1]
+		index := len(oldest_ts)-1-1-6 // -1 because of the p, -1 because >, -6 because timestamp format
+		oldest_ts = oldest_ts[1:index] + "." + oldest_ts[index:len(oldest_ts)-1-1] // Drop the p at position [0], and drop the angle bracket at the end
+		fmt.Println(oldest_ts)
+
+		// Get the conversation history
+		params := slack.GetConversationHistoryParameters{
+			ChannelID: ev.Channel,
+			Oldest: oldest_ts,
+			Inclusive: true,
+		}
+		conversation, err := api.GetConversationHistory(&params)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		fmt.Println(conversation)
+
+
 	} else {
 		// Post ephemeral message to user
 		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
@@ -389,7 +411,7 @@ func generateTranscript(channelID string, threadTs string) (title *string, trans
 
 	// Define the desired format layout
 	timeLayout := "2006-01-02 at 15:04"
-	currentTime := time.Now().Format(timeLayout)
+	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
 
 	transcript += "Conversation begins at " + currentTime + "\n\n"
 
