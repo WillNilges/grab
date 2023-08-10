@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"context"
 
 	"github.com/slack-go/slack/socketmode"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/EricMCarroll/go-mwclient"
+	
+	"github.com/go-pg/pg/v10"
 )
 
 var config Config
@@ -22,6 +25,7 @@ type Config struct {
 	Username string
 	Password string
 	Domain   string
+	PostgresURI string
 }
 
 var w *mwclient.Client
@@ -33,6 +37,23 @@ func init() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("Couldn't load .env file")
+	}
+	
+	// ------- postgres  --------
+	
+	config.PostgresURI = os.Getenv("POSTGRES_URI")
+
+	opt, err := pg.ParseURL(config.PostgresURI)
+	if err != nil {
+	   panic(err)
+	}
+
+	db := pg.Connect(opt)
+
+	ctx := context.Background()
+
+	if err := db.Ping(ctx); err != nil {
+		panic(err)
 	}
 
 	// ------- mediawiki --------
