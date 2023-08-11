@@ -2,19 +2,22 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/uptrace/bun"
 )
 
+// An instance of Grab is in reference to an organization using Grab. For now
+// they can only have a Slack and a MediaWiki, but I'll probably want to change
+// the schema when I start adding more stuff. Might want to make some relations
+// and what have you
 type Instance struct {
-	GrabID           int
-	SlackTeamID      []byte
-	SlackAccessToken []byte
-	MediaWikiURL     []byte
-	MediaWikiUname   []byte
-	MediaWikiPword   []byte
-	MediaWikiDomain  []byte
+	GrabID           string
+	SlackTeamID      string
+	SlackAccessToken string
+	MediaWikiURL     string
+	MediaWikiUname   string
+	MediaWikiPword   string
+	MediaWikiDomain  string
 }
 
 // Check if we need to initialize the database, and do so if that's the case
@@ -32,27 +35,45 @@ func initDB(db *bun.DB) (err error) {
 		panic(err)
 	}
 
-	fmt.Println("Chom")
-	chom := new(Instance)
-	chom.SlackTeamID = []byte("hello1")
-	chom.SlackAccessToken = []byte("hello2")
-	chom.MediaWikiURL = []byte("hello3")
-	chom.MediaWikiUname = []byte("hello4")
-	chom.MediaWikiDomain = []byte("hello5")
-	res, err := db.NewInsert().Model(chom).Exec(ctx)
+	return nil
+}
+
+// Should only return one instance
+func selectInstance(db *bun.DB, grabID string) (instance *Instance) {
+	instance = new(Instance)
+	db.NewSelect().
+		Model(instance).
+		Where("grab_id = ?", grabID)
+
+	return instance
+}
+
+// Add a new instance
+func insertInstance(db *bun.DB, instance Instance) (err error) {
+	ctx := context.Background()
+	_, err = db.NewInsert().Model(instance).Exec(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Println(res)
-	skz := new(Instance)
-	err = db.NewSelect().
-		Model(skz).
-		Scan(ctx)
+	return nil
+}
+
+// Update instance info if something changes
+func updateInstance(db *bun.DB, grabID string, instance Instance) (err error) {
+	ctx := context.Background()
+	_, err = db.NewUpdate().Model(instance).Where("grab_id = ?", grabID).Exec(ctx)
 	if err != nil {
 		return err
 	}
+	return nil
+}
 
-	fmt.Println(string(skz.SlackTeamID))
-
+func deleteInstance(db *bun.DB, teamID string) (err error) {
+	ctx := context.Background()
+	instance := new(Instance)
+	_, err = db.NewDelete().Model(instance).Where("slack_team_id = ?", teamID).Exec(ctx)
+	if err != nil {
+		return err
+	}
 	return nil
 }

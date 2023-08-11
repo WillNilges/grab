@@ -10,11 +10,12 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/EricMCarroll/go-mwclient"
-	
+
+	"database/sql"
+
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
-	"database/sql"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,16 +23,17 @@ import (
 var config Config
 
 type Config struct {
-	WikiURL  string
-	Username string
-	Password string
-	Domain   string
+	WikiURL     string
+	Username    string
+	Password    string
+	Domain      string
 	PostgresURI string
 }
 
 var w *mwclient.Client
 var api *slack.Client
-//var client *socketmode.Client
+
+// var client *socketmode.Client
 var db *bun.DB
 
 func init() {
@@ -40,14 +42,13 @@ func init() {
 	if err != nil {
 		log.Println("Couldn't load .env file")
 	}
-	
+
 	// ------- postgres  --------
-	
 	dsn := os.Getenv("POSTGRES_URI")
 	pgdb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
 
 	// Create a Bun db on top of it.
-	db := bun.NewDB(pgdb, pgdialect.New())
+	db = bun.NewDB(pgdb, pgdialect.New())
 
 	err = initDB(db)
 	if err != nil {
@@ -83,14 +84,11 @@ func main() {
 	app.Any("/install", installResp())
 
 	// Serve initial interactions with the bot
-	pingGroup := app.Group("/ping")
-	//pingGroup.Use(signatureVerification)
-	pingGroup.POST("/grab", appendResp())
-	pingGroup.POST("/range", rangeResp())
-
-	// Respond to button pushes?
-	eventGroup := app.Group("/interact")
+	eventGroup := app.Group("/event")
 	//eventGroup.Use(signatureVerification)
-	eventGroup.POST("/interact", interactResp())
+	eventGroup.POST("/", eventResp())
+	eventGroup.POST("/grab", appendResp())
+	eventGroup.POST("/range", rangeResp())
+
 	_ = app.Run()
 }
