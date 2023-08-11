@@ -4,10 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
-	"context"
-
-	"github.com/slack-go/slack/socketmode"
 
 	"github.com/slack-go/slack"
 
@@ -15,7 +11,12 @@ import (
 
 	"github.com/EricMCarroll/go-mwclient"
 	
-	"github.com/go-pg/pg/v10"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/driver/pgdriver"
+	"database/sql"
+
+	"github.com/gin-gonic/gin"
 )
 
 var config Config
@@ -30,7 +31,8 @@ type Config struct {
 
 var w *mwclient.Client
 var api *slack.Client
-var client *socketmode.Client
+//var client *socketmode.Client
+var db *bun.DB
 
 func init() {
 	// Load environment variables, one way or another
@@ -41,19 +43,15 @@ func init() {
 	
 	// ------- postgres  --------
 	
-	config.PostgresURI = os.Getenv("POSTGRES_URI")
+	dsn := os.Getenv("POSTGRES_URI")
+	pgdb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
 
-	opt, err := pg.ParseURL(config.PostgresURI)
+	// Create a Bun db on top of it.
+	db := bun.NewDB(pgdb, pgdialect.New())
+
+	err = initDB(db)
 	if err != nil {
-	   panic(err)
-	}
-
-	db := pg.Connect(opt)
-
-	ctx := context.Background()
-
-	if err := db.Ping(ctx); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	// ------- mediawiki --------
@@ -78,43 +76,21 @@ func init() {
 	}
 	// end mediawiki
 
-	// SLACK
-	// Get tokens
-	appToken := os.Getenv("SLACK_APP_TOKEN")
-	if appToken == "" {
-		fmt.Fprintf(os.Stderr, "SLACK_APP_TOKEN must be set.\n")
-		os.Exit(1)
-	}
-
-	if !strings.HasPrefix(appToken, "xapp-") {
-		fmt.Fprintf(os.Stderr, "SLACK_APP_TOKEN must have the prefix \"xapp-\".")
-	}
-
-	botToken := os.Getenv("SLACK_BOT_TOKEN")
-	if botToken == "" {
-		fmt.Fprintf(os.Stderr, "SLACK_BOT_TOKEN must be set.\n")
-		os.Exit(1)
-	}
-
-	if !strings.HasPrefix(botToken, "xoxb-") {
-		fmt.Fprintf(os.Stderr, "SLACK_BOT_TOKEN must have the prefix \"xoxb-\".")
-	}
-
-	api = slack.New(
-		botToken,
-		slack.OptionDebug(true),
-		slack.OptionLog(log.New(os.Stdout, "api: ", log.Lshortfile|log.LstdFlags)),
-		slack.OptionAppLevelToken(appToken),
-	)
-
-	client = socketmode.New(
-		api,
-		socketmode.OptionDebug(true),
-		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
-	)
-	// end SLACK
 }
 
 func main() {
-	slackBot()
+	app := gin.Default()
+	app.Any("/install", installResp())
+
+	// Serve initial interactions with the bot
+	pingGroup := app.Group("/ping")
+	//pingGroup.Use(signatureVerification)
+	pingGroup.POST("/grab", appendResp())
+	pingGroup.POST("/range", rangeResp())
+
+	// Respond to button pushes?
+	eventGroup := app.Group("/interact")
+	//eventGroup.Use(signatureVerification)
+	eventGroup.POST("/interact", interactResp())
+	_ = app.Run()
 }
