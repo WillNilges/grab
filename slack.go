@@ -247,9 +247,16 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
 			return
 		}
-		fmt.Println(payload)
-		fmt.Println(payload.Channel.GroupConversation.Conversation)
+		fmt.Println("THIS IS YOUR PAYLOAD >>> ", payload)
 		if payload.CallbackID == "append_thread_transcript" {
+			// Define blocks
+
+			firstNameText := slack.NewTextBlockObject("plain_text", "First Name", false, false)
+			firstNamePlaceholder := slack.NewTextBlockObject("plain_text", "Enter your first name", false, false)
+			firstNameElement := slack.NewPlainTextInputBlockElement(firstNamePlaceholder, "firstName")
+			// Notice that blockID is a unique identifier for a block
+			firstName := slack.NewInputBlock("First Name", firstNameText, firstNameText, firstNameElement)
+
 			confirmButton := slack.NewButtonBlockElement(
 				"confirm_wiki_page_overwrite",
 				"CONFIRM",
@@ -267,6 +274,7 @@ func interactionResp() func(c *gin.Context) {
 					nil,
 					nil,
 				),
+				firstName,
 				slack.NewActionBlock(
 					"",
 					confirmButton,
