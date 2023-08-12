@@ -356,7 +356,46 @@ func interactionResp() func(c *gin.Context) {
 					return
 				}
 
-				fmt.Println(articleTitle, articleSection)
+				fmt.Println(articleTitle, " / ", articleSection)
+
+				// OK, now actually post it to the wiki.
+				/*
+					conversation, err = getThreadConversation(channelID, threadTs)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+
+					if *command.title == "" {
+						// Get title if not provided
+						command.title, transcript = generateTranscript(conversation)
+					} else {
+						_, transcript = generateTranscript(conversation)
+					}
+
+					// Publish the content to the wiki. If the article doesn't exist,
+					// then create it. If the section doesn't exist, then create it.
+					err = publishToWiki(false, *command.title, *command.section, transcript)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+
+					// Update the ephemeral message
+					newArticleURL, _, err := getArticleURL(*command.title)
+					responseData := fmt.Sprintf(
+						`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
+						threadTs,
+						newArticleURL,
+					)
+					reader := strings.NewReader(responseData)
+					_, err = http.Post(callback.ResponseURL, "application/json", reader)
+
+					if err != nil {
+						log.Printf("Failed updating message: %v", err)
+					}
+
+				*/
 			} else if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptCancel {
 				// Update the ephemeral message
 				responseData := fmt.Sprintf(

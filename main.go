@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/slack-go/slack"
@@ -81,7 +82,18 @@ func init() {
 
 func main() {
 	app := gin.Default()
-	app.Any("/install", installResp())
+	app.Any("/install/authorize", installResp())
+	app.GET("/install/form", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "index.html", nil)
+	})
+	app.GET("/install/submit", func(c *gin.Context) {
+		wikiUsername := c.PostForm("username")
+		wikiPassword := c.PostForm("password")
+		wikiUrl := c.PostForm("url")
+
+		// You can process the data here (e.g., save to a database, perform validation)
+		c.Redirect(http.StatusSeeOther, "/install/authorize?username="+wikiUsername+"&password="+wikiPassword+"&url="+wikiUrl)
+	})
 
 	// Serve initial interactions with the bot
 	eventGroup := app.Group("/event")
