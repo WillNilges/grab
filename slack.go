@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
@@ -239,6 +240,17 @@ func handleMention(ev *slackevents.EventsAPIInnerEvent) {
 
 */
 
+type GrabCallbackIDs string
+type GrabBlockActionIDs string
+
+const (
+	// Callback ID
+	GrabInteractionAppendThreadTranscript = "append_thread_transcript"
+	// Block Action IDs for that Callback ID
+	GrabInteractionAppendThreadTranscriptConfirm = "append_thread_transcript_confirm"
+	GrabInteractionAppendThreadTranscriptCancel  = "append_thread_transcript_cancel"
+)
+
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var payload slack.InteractionCallback
@@ -247,60 +259,95 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
 			return
 		}
-		fmt.Println("THIS IS YOUR PAYLOAD >>> ", payload)
-		if payload.CallbackID == "append_thread_transcript" {
-			// Define blocks
+		//fmt.Println("THIS IS YOUR PAYLOAD >>> ", payload)
+		//fmt.Println(payload.ActionCallback.BlockActions[0])
+		//fmt.Println(payload.Type)
 
-			firstNameText := slack.NewTextBlockObject("plain_text", "First Name", false, false)
-			firstNamePlaceholder := slack.NewTextBlockObject("plain_text", "Enter your first name", false, false)
-			firstNameElement := slack.NewPlainTextInputBlockElement(firstNamePlaceholder, "firstName")
-			// Notice that blockID is a unique identifier for a block
-			firstName := slack.NewInputBlock("First Name", firstNameText, firstNameText, firstNameElement)
+		if payload.Type == "message_action" {
+			if payload.CallbackID == GrabInteractionAppendThreadTranscript {
+				// Define blocks
 
-			confirmButton := slack.NewButtonBlockElement(
-				"confirm_wiki_page_overwrite",
-				"CONFIRM",
-				slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
-			)
-			confirmButton.Style = "danger"
-			blockMsg := slack.MsgOptionBlocks(
-				slack.NewSectionBlock(
+				messageText := slack.NewSectionBlock(
 					slack.NewTextBlockObject(
 						"mrkdwn",
-						"Hello there! I am a scary looking boi with a big red button!",
+						"Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones.",
 						false,
 						false,
 					),
 					nil,
 					nil,
-				),
-				firstName,
-				slack.NewActionBlock(
+				)
+				articleTitleText := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
+				articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Provide a title for this article", false, false)
+				articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "article_title")
+				// Notice that blockID is a unique identifier for a block
+				articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
+
+				articleSectionText := slack.NewTextBlockObject("plain_text", "Article Section", false, false)
+				articleSectionPlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, place it under a section", false, false)
+				articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_title")
+				// Notice that blockID is a unique identifier for a block
+				articleSection := slack.NewInputBlock("Article Section", articleSectionText, nil, articleSectionElement)
+
+				confirmButton := slack.NewButtonBlockElement(
+					GrabInteractionAppendThreadTranscriptConfirm,
+					"CONFIRM",
+					slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+				)
+				confirmButton.Style = "primary"
+
+				cancelButton := slack.NewButtonBlockElement(
+					GrabInteractionAppendThreadTranscriptCancel,
+					"CANCEL",
+					slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
+				)
+
+				buttons := slack.NewActionBlock(
 					"",
 					confirmButton,
-					slack.NewButtonBlockElement(
-						"cancel_wiki_page_overwrite",
-						"CANCEL",
-						slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
-					),
-				),
-			)
-			var instance Instance
-			instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
-			if err != nil {
-				log.Println(err)
-				c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
-			}
+					cancelButton,
+				)
 
-			_, err = slack.New(instance.SlackAccessToken).PostEphemeral(
-				payload.Channel.ID,
-				payload.User.ID,
-				slack.MsgOptionTS(payload.Message.ThreadTimestamp),
-				blockMsg,
-			)
-			if err != nil {
-				fmt.Println(err)
-				c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
+				blockMsg := slack.MsgOptionBlocks(
+					messageText,
+					articleTitle,
+					articleSection,
+					buttons,
+				)
+				var instance Instance
+				instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
+				}
+
+				_, err = slack.New(instance.SlackAccessToken).PostEphemeral(
+					payload.Channel.ID,
+					payload.User.ID,
+					slack.MsgOptionTS(payload.Message.ThreadTimestamp),
+					blockMsg,
+				)
+				if err != nil {
+					fmt.Println(err)
+					c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
+				}
+			}
+		} else if payload.Type == "block_actions" {
+			firstBlockAction := payload.ActionCallback.BlockActions[0]
+			if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptConfirm {
+
+			} else if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptCancel {
+				// Update the ephemeral message
+				responseData := fmt.Sprintf(
+					`{"replace_original": "true", "thread_ts": "%s", "text": "Grab request cancelled."}`,
+					payload.Container.ThreadTs,
+				)
+				reader := strings.NewReader(responseData)
+				_, err := http.Post(payload.ResponseURL, "application/json", reader)
+
+				if err != nil {
+					log.Printf("Failed updating message: %v", err)
+				}
 			}
 		}
 		return
