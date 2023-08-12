@@ -105,12 +105,10 @@ func eventResp() func(c *gin.Context) {
 			}
 			switch ie.Type {
 			case string(slackevents.AppMention):
-				fmt.Println("Dude that's me!!!")
-				//handleMention(event)
-				fmt.Println(ie.Data)
+				log.Println("Got mentioned")
 				am := &slackevents.AppMentionEvent{}
 				json.Unmarshal(*ce.InnerEvent, am)
-				fmt.Println(am.Text)
+				handleMention(am)
 			case string(slackevents.AppUninstalled):
 				log.Printf("App uninstalled from %s.\n", event.TeamID)
 				err = deleteInstance(db, event.TeamID)
@@ -127,8 +125,10 @@ func eventResp() func(c *gin.Context) {
 }
 
 // DEBUG: Fuck fuck fuck
-func handleMention(ev *slackevents.EventsAPIEvent) {
-	fmt.Println(ev.Data)
+func handleMention(am *slackevents.AppMentionEvent) (err error) {
+
+	//command, err := interpretCommand(tokenizeCommand(ev.Text))
+	return nil
 }
 
 /*
@@ -241,6 +241,36 @@ func handleMention(ev *slackevents.EventsAPIInnerEvent) {
 
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
+
+		var payload slack.InteractionCallback
+		err := json.Unmarshal([]byte(c.Request.FormValue("payload")), &payload)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
+			return
+		}
+		fmt.Println(payload)
+		/*
+			// FIXME: This should be working, but it's not. What the fuck
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err != nil {
+				c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
+				return
+			}
+			fmt.Println(string(bodyBytes))
+			log.Println("Got mentioned")
+			sc := &slack.SlashCommand{}
+			json.Unmarshal(bodyBytes, sc)
+
+			fmt.Println(sc)
+
+			fmt.Println(c.Request.PostForm.Get("team_id"))
+			command, err := slack.SlashCommandParse(c.Request)
+			if err != nil {
+
+				c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
+				return
+			}
+			fmt.Println(command.Text)*/
 		return
 	}
 }
