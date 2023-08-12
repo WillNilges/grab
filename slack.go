@@ -230,15 +230,11 @@ func interactionResp() func(c *gin.Context) {
 				}
 				articleTitle, err := v.GetString("values", "Article Title", "article_title", "value")
 				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
-					return
+					log.Println("Couldn't parse article title: ", err)
 				}
 				articleSection, err := v.GetString("values", "Article Section", "article_section", "value")
 				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
-					return
+					log.Println("Couldn't parse section title: ", err)
 				}
 
 				fmt.Println(articleTitle, " / ", articleSection)
