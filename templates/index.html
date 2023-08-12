@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Form Example</title>
+</head>
+<body>
+	<h1>Please enter your MediaWiki credentials</h1>
+	<form action="/install/submit" method="POST">
+		<label for="username">Username:</label>
+		<input type="text" id="username" name="username" required><br>
+
+		<label for="password">Password:</label>
+		<input type="password" id="password" name="password" required><br>
+
+		<label for="url">URL:</label>
+		<input type="url" id="url" name="url" required><br>
+
+		<label for="domain">Domain:</label>
+		<input type="domain" id="domain" name="domain" required><br>
+
+		<input type="hidden" name="code" value="{{ .Code }}">
+
+		<button type="submit">Submit</button>
+	</form>
+</body>
+</html>

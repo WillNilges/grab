@@ -47,6 +47,10 @@ func installResp() func(c *gin.Context) {
 		instance.GrabID = uuid.New().String()
 		instance.SlackTeamID = resp.Team.ID
 		instance.SlackAccessToken = resp.AccessToken
+		instance.MediaWikiUname = c.Query("mediaWikiUname")
+		instance.MediaWikiPword = c.Query("mediaWikiPword")
+		instance.MediaWikiURL = c.Query("mediaWikiURL")
+		instance.MediaWikiDomain = c.Query("mediaWikiDomain")
 
 		err = insertInstance(db, instance)
 		if err != nil {

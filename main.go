@@ -82,18 +82,32 @@ func init() {
 
 func main() {
 	app := gin.Default()
-	app.Any("/install/authorize", installResp())
-	app.GET("/install/form", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.html", nil)
+	app.LoadHTMLGlob("templates/*")
+
+	installGroup := app.Group("/install")
+	// First, the user goes to the form to submit mediawiki creds
+	installGroup.GET("/", func(c *gin.Context) {
+		code := c.DefaultQuery("code", "") // Retrieve the code parameter from the query string
+		c.HTML(http.StatusOK, "index.html", gin.H{
+			"Code": code, // Pass the code parameter to the template
+		})
 	})
-	app.GET("/install/submit", func(c *gin.Context) {
+
+	// Then, the creds get submitted
+	installGroup.POST("/submit", func(c *gin.Context) {
 		wikiUsername := c.PostForm("username")
 		wikiPassword := c.PostForm("password")
 		wikiUrl := c.PostForm("url")
+		wikiDomain := c.PostForm("domain")
+		code := c.PostForm("code")
 
-		// You can process the data here (e.g., save to a database, perform validation)
-		c.Redirect(http.StatusSeeOther, "/install/authorize?username="+wikiUsername+"&password="+wikiPassword+"&url="+wikiUrl)
+		c.Redirect(
+			http.StatusSeeOther,
+			"/install/authorize?code="+code+"&mediaWikiUname="+wikiUsername+"&mediaWikiPword="+wikiPassword+"&mediaWikiURL="+wikiUrl+"&mediaWikiDomain="+wikiDomain,
+		)
 	})
+	// Then we use them while we set up the DB and do Slack things
+	installGroup.Any("/authorize", installResp())
 
 	// Serve initial interactions with the bot
 	eventGroup := app.Group("/event")
