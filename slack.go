@@ -241,7 +241,6 @@ func handleMention(ev *slackevents.EventsAPIInnerEvent) {
 
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
-
 		var payload slack.InteractionCallback
 		err := json.Unmarshal([]byte(c.Request.FormValue("payload")), &payload)
 		if err != nil {
@@ -249,28 +248,65 @@ func interactionResp() func(c *gin.Context) {
 			return
 		}
 		fmt.Println(payload)
-		/*
-			// FIXME: This should be working, but it's not. What the fuck
-			bodyBytes, err := io.ReadAll(c.Request.Body)
+		fmt.Println(payload.Channel.GroupConversation.Conversation)
+		if payload.CallbackID == "append_thread_transcript" {
+			confirmButton := slack.NewButtonBlockElement(
+				"confirm_wiki_page_overwrite",
+				"CONFIRM",
+				slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
+			)
+			confirmButton.Style = "danger"
+			blockMsg := slack.MsgOptionBlocks(
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(
+						"mrkdwn",
+						"Hello there! I am a scary looking boi with a big red button!",
+						false,
+						false,
+					),
+					nil,
+					nil,
+				),
+				slack.NewActionBlock(
+					"",
+					confirmButton,
+					slack.NewButtonBlockElement(
+						"cancel_wiki_page_overwrite",
+						"CANCEL",
+						slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
+					),
+				),
+			)
+			/*
+				_, err := api.PostEphemeral(
+					payload.Channel.ID,
+					payload.User.ID,
+					slack.MsgOptionTS(payload.Container.ThreadTs),
+					blockMsg,
+				)
+
+				if err != nil {
+					log.Printf("Failed to send message: %v", err)
+				}*/
+
+			var instance Instance
+			instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
 			if err != nil {
-				c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
-				return
+				log.Println(err)
+				c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 			}
-			fmt.Println(string(bodyBytes))
-			log.Println("Got mentioned")
-			sc := &slack.SlashCommand{}
-			json.Unmarshal(bodyBytes, sc)
 
-			fmt.Println(sc)
-
-			fmt.Println(c.Request.PostForm.Get("team_id"))
-			command, err := slack.SlashCommandParse(c.Request)
+			_, err = slack.New(instance.SlackAccessToken).PostEphemeral(
+				payload.Channel.ID,
+				payload.User.ID,
+				slack.MsgOptionTS(payload.Container.ThreadTs),
+				blockMsg,
+			)
 			if err != nil {
-
-				c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
-				return
+				fmt.Println(err)
+				c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
 			}
-			fmt.Println(command.Text)*/
+		}
 		return
 	}
 }
