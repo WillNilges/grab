@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&display=swap');
+body {
+    background-color: #333;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    font-family: 'IBM Plex Sans';
+}
+
+h2 {
+    color: #999;
+}
+
+.formBody {
+    display: flex;
+    justify-content: center;
+    flex-flow: column;
+    width: 200px;
+    margin:20px;
+}
+.formBody label {
+    padding-top: 10px;
+}
+
+.formBody button {
+    padding: 10px;
+}

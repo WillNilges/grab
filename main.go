@@ -83,6 +83,7 @@ func init() {
 func main() {
 	app := gin.Default()
 	app.LoadHTMLGlob("templates/*")
+	app.Static("/static", "./static")
 
 	installGroup := app.Group("/install")
 	// First, the user goes to the form to submit mediawiki creds

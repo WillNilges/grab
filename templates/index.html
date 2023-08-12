@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title>Form Example</title>
+	<title>Welcome</title>
+	<link rel="stylesheet" type="text/css" href="/static/css/styles.css">
 </head>
 <body>
-	<h1>Please enter your MediaWiki credentials</h1>
-	<form action="/install/submit" method="POST">
+	<h1>Welcome to Grab!</h1>
+	<h2>Please enter your MediaWiki credentials</h2>
+	<form class="formBody" action="/install/submit" method="POST">
 		<label for="username">Username:</label>
 		<input type="text" id="username" name="username" required><br>
 
@@ -19,6 +21,9 @@
 		<input type="domain" id="domain" name="domain" required><br>
 
 		<input type="hidden" name="code" value="{{ .Code }}">
+
+		<div style="height: 40px;">
+		</div>
 
 		<button type="submit">Submit</button>
 	</form>
