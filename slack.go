@@ -45,7 +45,7 @@ func installResp() func(c *gin.Context) {
 		instance.SlackTeamID = resp.Team.ID
 		instance.SlackAccessToken = resp.AccessToken
 
-		err = insertInstance(db, *instance)
+		err = insertInstance(db, instance)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "error storing slack access token: %s", err.Error())
 			return
@@ -110,6 +110,12 @@ func eventResp() func(c *gin.Context) {
 		default:
 			c.String(http.StatusBadRequest, "invalid event type sent from slack")
 		}
+	}
+}
+
+func interactionResp() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		return
 	}
 }
 

@@ -86,9 +86,12 @@ func main() {
 	// Serve initial interactions with the bot
 	eventGroup := app.Group("/event")
 	//eventGroup.Use(signatureVerification)
-	eventGroup.POST("/", eventResp())
+	eventGroup.POST("/handle", eventResp())
 	eventGroup.POST("/grab", appendResp())
 	eventGroup.POST("/range", rangeResp())
+
+	interactionGroup := app.Group("/interaction")
+	interactionGroup.POST("/handle", interactionResp())
 
 	_ = app.Run()
 }

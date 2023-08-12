@@ -49,7 +49,7 @@ func selectInstance(db *bun.DB, grabID string) (instance *Instance) {
 }
 
 // Add a new instance
-func insertInstance(db *bun.DB, instance Instance) (err error) {
+func insertInstance(db *bun.DB, instance *Instance) (err error) {
 	ctx := context.Background()
 	_, err = db.NewInsert().Model(instance).Exec(ctx)
 	if err != nil {
@@ -59,7 +59,7 @@ func insertInstance(db *bun.DB, instance Instance) (err error) {
 }
 
 // Update instance info if something changes
-func updateInstance(db *bun.DB, grabID string, instance Instance) (err error) {
+func updateInstance(db *bun.DB, grabID string, instance *Instance) (err error) {
 	ctx := context.Background()
 	_, err = db.NewUpdate().Model(instance).Where("grab_id = ?", grabID).Exec(ctx)
 	if err != nil {
