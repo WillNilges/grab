@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/antonholmquist/jason"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -285,7 +286,7 @@ func interactionResp() func(c *gin.Context) {
 
 				articleSectionText := slack.NewTextBlockObject("plain_text", "Article Section", false, false)
 				articleSectionPlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, place it under a section", false, false)
-				articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_title")
+				articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_section")
 				// Notice that blockID is a unique identifier for a block
 				articleSection := slack.NewInputBlock("Article Section", articleSectionText, nil, articleSectionElement)
 
@@ -330,12 +331,32 @@ func interactionResp() func(c *gin.Context) {
 				if err != nil {
 					fmt.Println(err)
 					c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
+					return
 				}
 			}
 		} else if payload.Type == "block_actions" {
 			firstBlockAction := payload.ActionCallback.BlockActions[0]
 			if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptConfirm {
+				v, err := jason.NewObjectFromBytes(payload.RawState)
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+					return
+				}
+				articleTitle, err := v.GetString("values", "Article Title", "article_title", "value")
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+					return
+				}
+				articleSection, err := v.GetString("values", "Article Section", "article_section", "value")
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+					return
+				}
 
+				fmt.Println(articleTitle, articleSection)
 			} else if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptCancel {
 				// Update the ephemeral message
 				responseData := fmt.Sprintf(
