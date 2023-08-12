@@ -277,18 +277,6 @@ func interactionResp() func(c *gin.Context) {
 					),
 				),
 			)
-			/*
-				_, err := api.PostEphemeral(
-					payload.Channel.ID,
-					payload.User.ID,
-					slack.MsgOptionTS(payload.Container.ThreadTs),
-					blockMsg,
-				)
-
-				if err != nil {
-					log.Printf("Failed to send message: %v", err)
-				}*/
-
 			var instance Instance
 			instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
 			if err != nil {
@@ -299,7 +287,7 @@ func interactionResp() func(c *gin.Context) {
 			_, err = slack.New(instance.SlackAccessToken).PostEphemeral(
 				payload.Channel.ID,
 				payload.User.ID,
-				slack.MsgOptionTS(payload.Container.ThreadTs),
+				slack.MsgOptionTS(payload.Message.ThreadTimestamp),
 				blockMsg,
 			)
 			if err != nil {
