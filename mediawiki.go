@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"strings"
-	"github.com/EricMCarroll/go-mwclient"
 	"io"
 	"log"
 	"mime/multipart"
@@ -13,13 +11,16 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/EricMCarroll/go-mwclient"
 	"github.com/antonholmquist/jason"
 )
 
 // Helper function for putting things on the wiki. Can easily control how content
 // gets published by setting or removing variables
-func publishToWiki(append bool, title string, sectionTitle string, convo string) (err error) {
+func publishToWiki(w *mwclient.Client, append bool, title string, sectionTitle string, convo string) (err error) {
 	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
 	parameters := map[string]string{
 		"action":  "edit",
@@ -30,12 +31,12 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	}
 
 	if sectionTitle != "" {
-		sectionExists, _ := sectionExists(title, sectionTitle)
+		sectionExists, _ := sectionExists(w, title, sectionTitle)
 		if sectionExists && !append {
 			// If we're clobbering a section, we need to delete it and then
 			// re-make it. Absolutely not ideal, because if a section exists
 			// in the middle of the page, it will move it to the end.
-			index, err := findSectionId(title, sectionTitle)
+			index, err := findSectionId(w, title, sectionTitle)
 			if err != nil {
 				return err
 			}
@@ -49,7 +50,7 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 			return w.Edit(parameters) // Make a new one
 
 		} else if sectionExists /* && append */ {
-			index, err := findSectionId(title, sectionTitle)
+			index, err := findSectionId(w, title, sectionTitle)
 			if err != nil {
 				return err
 			}
@@ -71,7 +72,7 @@ func publishToWiki(append bool, title string, sectionTitle string, convo string)
 	return w.Edit(parameters)
 }
 
-func uploadToWiki(path string) (filename string, err error) {
+func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -170,7 +171,7 @@ func uploadToWiki(path string) (filename string, err error) {
 	return basename, nil
 }
 
-func getArticleURL(title string) (url string, missing bool, err error) {
+func getArticleURL(w *mwclient.Client, title string) (url string, missing bool, err error) {
 	newArticleParameters := map[string]string{
 		"action": "query",
 		"format": "json",
@@ -199,7 +200,7 @@ func getArticleURL(title string) (url string, missing bool, err error) {
 }
 
 // Check if the section exists or not, that's really all we care about (for now).
-func sectionExists(title string, section string) (exists bool, err error) {
+func sectionExists(w *mwclient.Client, title string, section string) (exists bool, err error) {
 	sectionQueryParameters := map[string]string{
 		"format": "json",
 		"action": "parse",
@@ -228,7 +229,7 @@ func sectionExists(title string, section string) (exists bool, err error) {
 }
 
 // Check if the section exists or not, that's really all we care about (for now).
-func findSectionId(title string, section string) (id string, err error) {
+func findSectionId(w *mwclient.Client, title string, section string) (id string, err error) {
 	sectionQueryParameters := map[string]string{
 		"format": "json",
 		"action": "parse",

@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/EricMCarroll/go-mwclient"
 	"github.com/antonholmquist/jason"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
@@ -57,19 +59,6 @@ func installResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error storing slack access token: %s", err.Error())
 			return
 		}
-
-		/*
-			if err = db.Update(func(tx *bolt.Tx) error {
-				bucket := tx.Bucket([]byte("tokens"))
-				if bucket == nil {
-					return errors.New("error accessing tokens bucket")
-				}
-				return bucket.Put([]byte(resp.Team.ID), []byte(resp.AccessToken))
-			}); err != nil {
-				c.String(http.StatusInternalServerError, "error storing slack access token: %s", err.Error())
-				return
-			}
-		*/
 		c.Redirect(http.StatusFound, fmt.Sprintf("slack://app?team=%s&id=%s&tab=about", resp.Team.ID, resp.AppID))
 	}
 }
@@ -136,114 +125,6 @@ func handleMention(am *slackevents.AppMentionEvent) (err error) {
 	//command, err := interpretCommand(tokenizeCommand(ev.Text))
 	return nil
 }
-
-/*
-// Code to run if someone mentions the bot.
-func handleMention(ev *slackevents.EventsAPIInnerEvent) {
-	command, err := interpretCommand(tokenizeCommand(ev.Text))
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	var conversation []slack.Message
-
-	if command.appendHappened {
-		// Firstly, check if we have a ThreadTimeStamp. If not, scream.
-		if ev.ThreadTimeStamp == "" {
-			_, err = client.PostEphemeral(
-				ev.Channel,
-				ev.User,
-				slack.MsgOptionTS(ev.ThreadTimeStamp),
-				slack.MsgOptionText(
-					fmt.Sprintf("Sorry, I only work inside threads!\n%s", helpMessage),
-					false,
-				),
-			)
-			if err != nil {
-				fmt.Printf("failed posting message: %v", err)
-			}
-			return
-		}
-
-		conversation, err = getThreadConversation(ev.Channel, ev.ThreadTimeStamp)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-	} else if command.rangeHappened {
-		oldestTs, latestTs := formatRange(*command.rangeOpts.oldest, *command.rangeOpts.latest)
-
-		// Get the conversation history
-		conversation, err = getConversation(ev.Channel, oldestTs, latestTs)
-		if err != nil {
-			fmt.Printf("Could not get messages: %v", err)
-		}
-
-		// Reverse it so it's in chronological order
-		for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
-			conversation[i], conversation[j] = conversation[j], conversation[i]
-		}
-	} else {
-		// Post ephemeral message to user
-		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
-		if err != nil {
-			fmt.Printf("failed posting message: %v", err)
-		}
-		return
-	}
-
-	var transcript string
-	if *command.title == "" {
-		// Get title if not provided
-		command.title, transcript = generateTranscript(conversation)
-	} else {
-		_, transcript = generateTranscript(conversation)
-	}
-
-	// Now that we have the final title, check if the article exists
-	newArticleURL, missing, err := getArticleURL(*command.title)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	sectionExists, _ := sectionExists(*command.title, *command.section)
-
-	// If clobber is set and the page already exists,
-	// Send the user a BlockKit form and do nothing else.
-	if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
-		askToClobber(ev.Channel, ev.User, ev.ThreadTimeStamp, newArticleURL)
-		return
-	}
-
-	// Publish the content to the wiki. If the article doesn't exist,
-	// then create it. If the section doesn't exist, then create it.
-	err = publishToWiki(!missing, *command.title, *command.section, transcript)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// Now that it has been published and definitely exists, get
-	// the URL again
-	if missing {
-		newArticleURL, _, err = getArticleURL(*command.title)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
-
-	// Post ephemeral message to user
-	_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
-	if err != nil {
-		fmt.Printf("failed posting message: %v", err)
-	}
-
-}
-
-*/
 
 type GrabCallbackIDs string
 type GrabBlockActionIDs string
@@ -363,43 +244,68 @@ func interactionResp() func(c *gin.Context) {
 				fmt.Println(articleTitle, " / ", articleSection)
 
 				// OK, now actually post it to the wiki.
-				/*
-					conversation, err = getThreadConversation(channelID, threadTs)
-					if err != nil {
-						log.Println(err)
-						return
-					}
+				var instance Instance
+				instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
+				}
+				slackClient := slack.New(instance.SlackAccessToken)
 
-					if *command.title == "" {
-						// Get title if not provided
-						command.title, transcript = generateTranscript(conversation)
-					} else {
-						_, transcript = generateTranscript(conversation)
-					}
+				w, err := mwclient.New(instance.MediaWikiURL, "Grab")
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+					return
+				}
+				err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
+				if err != nil {
+					log.Println(err)
+					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+					return
+				}
 
-					// Publish the content to the wiki. If the article doesn't exist,
-					// then create it. If the section doesn't exist, then create it.
-					err = publishToWiki(false, *command.title, *command.section, transcript)
-					if err != nil {
-						log.Println(err)
-						return
-					}
+				var conversation []slack.Message
+				var transcript string
+				conversation, err = getThreadConversation(slackClient, payload.Channel.ID, payload.Container.ThreadTs)
+				if err != nil {
+					log.Println("Failed to get thread conversation: ", err)
+					return
+				}
 
-					// Update the ephemeral message
-					newArticleURL, _, err := getArticleURL(*command.title)
-					responseData := fmt.Sprintf(
-						`{"replace_original": "true", "thread_ts": "%d", "text": "Article updated! You can find it posted at: %s"}`,
-						threadTs,
-						newArticleURL,
-					)
-					reader := strings.NewReader(responseData)
-					_, err = http.Post(callback.ResponseURL, "application/json", reader)
+				if articleTitle == "" {
+					// Get title if not provided
+					articleTitle, transcript = generateTranscript(slackClient, w, conversation)
+				} else {
+					_, transcript = generateTranscript(slackClient, w, conversation)
+				}
 
-					if err != nil {
-						log.Printf("Failed updating message: %v", err)
-					}
+				// Publish the content to the wiki. If the article doesn't exist,
+				// then create it. If the section doesn't exist, then create it.
+				err = publishToWiki(w, false, articleTitle, articleSection, transcript)
+				if err != nil {
+					log.Println(err)
+					return
+				}
 
-				*/
+				// Update the ephemeral message
+				newArticleURL, _, err := getArticleURL(w, articleTitle)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				responseData := fmt.Sprintf(
+					`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
+					payload.Message.ThreadTimestamp,
+					newArticleURL,
+				)
+				reader := strings.NewReader(responseData)
+				_, err = http.Post(payload.ResponseURL, "application/json", reader)
+
+				if err != nil {
+					log.Printf("Failed updating message: %v", err)
+				}
+
 			} else if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptCancel {
 				// Update the ephemeral message
 				responseData := fmt.Sprintf(
@@ -418,22 +324,128 @@ func interactionResp() func(c *gin.Context) {
 	}
 }
 
-/*
-func appendResp() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		return
+func getThreadConversation(api *slack.Client, channelID string, threadTs string) (conversation []slack.Message, err error) {
+	// Get the conversation history
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
 	}
+	conversation, _, _, err = api.GetConversationReplies(&params)
+	if err != nil {
+		return conversation, err
+	}
+	return conversation, nil
 }
 
-func rangeResp() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		return
-	}
-}
+// Takes in a slack thread and...
+// Gets peoples' CSH usernames and makes them into page links (TODO)
+// Removes any mention of Grab
+// Adds human readable timestamp to the top of the transcript
+// Formats nicely
+// Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
+func generateTranscript(api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string) {
+	// Define the desired format layout
+	timeLayout := "2006-01-02 at 15:04"
+	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
 
-func interactResp() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		return
+	transcript += "Conversation begins at " + currentTime + "\n\n"
+
+	// Remove any message sent by Grab
+	// Call the AuthTest method to check the authentication and retrieve the bot's user ID
+	authTestResponse, err := api.AuthTest()
+	if err != nil {
+		log.Fatalf("Error calling AuthTest: %s", err)
 	}
+
+	// Print the bot's user ID
+	fmt.Printf("Current Time: %s\n", currentTime)
+	fmt.Printf("Bot UserID: %s\n", authTestResponse.UserID)
+
+	// Remove messages sent by Grab	and mentioning Grab
+	// Format conversation into string line-by-line
+	fmt.Printf("Looking for: <@%s>\n", authTestResponse.UserID)
+	var pureConversation []slack.Message
+	conversationUsers := map[string]string{}
+	for _, message := range conversation {
+
+		// Don't include messages that mention Grab.
+		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+			continue
+		}
+		pureConversation = append(pureConversation, message)
+
+		// Translate the user id to a user name
+		var msgUser *slack.User
+		if len(conversationUsers[message.User]) == 0 {
+			msgUser, err = api.GetUserInfo(message.User)
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				conversationUsers[message.User] = msgUser.Name
+			}
+		}
+		var msgUserName string
+		msgUserName = conversationUsers[message.User]
+
+		transcript += msgUserName + ": " + message.Text + "\n\n"
+		fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+
+		// Check for attachements
+		for _, attachment := range message.Attachments {
+			fmt.Println("Attachment!!!!")
+			// Dead-simple way to grab text attachments.
+			if attachment.Text != "" {
+				fmt.Println(attachment.Text)
+				transcript += "\n\n<pre>" + attachment.Text + "</pre>"
+			}
+		}
+
+		// I guess files are different.
+		for _, file := range message.Files {
+			fmt.Println(file.Mimetype)
+			fmt.Println(file.URLPrivateDownload)
+			// Download the file from Slack
+			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
+			path := fmt.Sprintf("/tmp/%s", basename)
+			tempFile, err := os.Create(path)
+			defer os.Remove(path)
+			if err != nil {
+				fmt.Println("Error creating output file:", err)
+				return
+			}
+			err = api.GetFile(file.URLPrivateDownload, tempFile)
+			if err != nil {
+				log.Println("Error getting file from Slack: ", err)
+				return
+			}
+			fmt.Printf("File created at %s\n", path)
+			tempFile.Close()
+			/*
+				Check the file type.
+				If it's an image, then check the File ID. Create a file in /tmp or
+				something, download it, then upload it to MediaWiki.
+			*/
+			if strings.Contains(file.Mimetype, "image") {
+				// Upload it to MediaWiki. For some reason, I can't just re-use
+				// the file header. The API doesn't like it.
+				var fileTitle string
+				fileTitle, err = uploadToWiki(w, path)
+				if err != nil {
+					log.Println("Error uploading file: ", err)
+					return
+				}
+				// It'll be like uhhh [[File:name.jpg]] or whatever.
+				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+			} else if strings.Contains(file.Mimetype, "text") {
+				fileContents, err := os.ReadFile(path)
+				if err != nil {
+					log.Println("Error reading file: ", err)
+					return
+				}
+				transcript += file.Name + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
+			}
+		}
+	}
+
+	return pureConversation[0].Text, transcript
 }
-*/

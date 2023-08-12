@@ -1,16 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/slack-go/slack"
-
 	"github.com/joho/godotenv"
-
-	"github.com/EricMCarroll/go-mwclient"
 
 	"database/sql"
 
@@ -31,10 +26,6 @@ type Config struct {
 	PostgresURI string
 }
 
-var w *mwclient.Client
-var api *slack.Client
-
-// var client *socketmode.Client
 var db *bun.DB
 
 func init() {
@@ -56,28 +47,29 @@ func init() {
 		log.Fatal(err)
 	}
 
-	// ------- mediawiki --------
-	config.WikiURL = os.Getenv("WIKI_URL")
-	config.Username = os.Getenv("WIKI_UNAME")
-	config.Password = os.Getenv("WIKI_PWORD")
-	config.Domain = os.Getenv("WIKI_DOMAIN")
+	/*
+		// ------- mediawiki --------
+		config.WikiURL = os.Getenv("WIKI_URL")
+		config.Username = os.Getenv("WIKI_UNAME")
+		config.Password = os.Getenv("WIKI_PWORD")
+		config.Domain = os.Getenv("WIKI_DOMAIN")
 
-	// Initialize a *Client with New(), specifying the wiki's API URL
-	// and your HTTP User-Agent. Try to use a meaningful User-Agent.
-	w, err = mwclient.New(config.WikiURL, "Grab")
-	if err != nil {
-		fmt.Println("Could not create MediaWiki Client instance.")
-		panic(err)
-	}
+		// Initialize a *Client with New(), specifying the wiki's API URL
+		// and your HTTP User-Agent. Try to use a meaningful User-Agent.
+		w, err = mwclient.New(config.WikiURL, "Grab")
+		if err != nil {
+			fmt.Println("Could not create MediaWiki Client instance.")
+			panic(err)
+		}
 
-	// Log in.
-	err = w.Login(config.Username, config.Password)
-	if err != nil {
-		fmt.Println("Could not log into MediaWiki instance.")
-		panic(err)
-	}
-	// end mediawiki
-
+		// Log in.
+		err = w.Login(config.Username, config.Password)
+		if err != nil {
+			fmt.Println("Could not log into MediaWiki instance.")
+			panic(err)
+		}
+		// end mediawiki
+	*/
 }
 
 func main() {
