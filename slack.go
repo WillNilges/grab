@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 
@@ -75,6 +76,10 @@ func eventResp() func(c *gin.Context) {
 			return
 		}
 		event, err := slackevents.ParseEvent(bodyBytes, slackevents.OptionNoVerifyToken())
+		if err != nil {
+			c.String(http.StatusInternalServerError, "error reading slack event payload: %s", err.Error())
+			return
+		}
 		switch event.Type {
 		case slackevents.URLVerification:
 			ve, ok := event.Data.(*slackevents.EventsAPIURLVerificationEvent)
@@ -99,7 +104,15 @@ func eventResp() func(c *gin.Context) {
 				return
 			}
 			switch ie.Type {
+			case string(slackevents.AppMention):
+				fmt.Println("Dude that's me!!!")
+				//handleMention(event)
+				fmt.Println(ie.Data)
+				am := &slackevents.AppMentionEvent{}
+				json.Unmarshal(*ce.InnerEvent, am)
+				fmt.Println(am.Text)
 			case string(slackevents.AppUninstalled):
+				log.Printf("App uninstalled from %s.\n", event.TeamID)
 				err = deleteInstance(db, event.TeamID)
 				if err != nil {
 					c.String(http.StatusInternalServerError, "error handling app uninstallation")
@@ -113,12 +126,126 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
+// DEBUG: Fuck fuck fuck
+func handleMention(ev *slackevents.EventsAPIEvent) {
+	fmt.Println(ev.Data)
+}
+
+/*
+// Code to run if someone mentions the bot.
+func handleMention(ev *slackevents.EventsAPIInnerEvent) {
+	command, err := interpretCommand(tokenizeCommand(ev.Text))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	var conversation []slack.Message
+
+	if command.appendHappened {
+		// Firstly, check if we have a ThreadTimeStamp. If not, scream.
+		if ev.ThreadTimeStamp == "" {
+			_, err = client.PostEphemeral(
+				ev.Channel,
+				ev.User,
+				slack.MsgOptionTS(ev.ThreadTimeStamp),
+				slack.MsgOptionText(
+					fmt.Sprintf("Sorry, I only work inside threads!\n%s", helpMessage),
+					false,
+				),
+			)
+			if err != nil {
+				fmt.Printf("failed posting message: %v", err)
+			}
+			return
+		}
+
+		conversation, err = getThreadConversation(ev.Channel, ev.ThreadTimeStamp)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	} else if command.rangeHappened {
+		oldestTs, latestTs := formatRange(*command.rangeOpts.oldest, *command.rangeOpts.latest)
+
+		// Get the conversation history
+		conversation, err = getConversation(ev.Channel, oldestTs, latestTs)
+		if err != nil {
+			fmt.Printf("Could not get messages: %v", err)
+		}
+
+		// Reverse it so it's in chronological order
+		for i, j := 0, len(conversation)-1; i < j; i, j = i+1, j-1 {
+			conversation[i], conversation[j] = conversation[j], conversation[i]
+		}
+	} else {
+		// Post ephemeral message to user
+		_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(helpMessage, false))
+		if err != nil {
+			fmt.Printf("failed posting message: %v", err)
+		}
+		return
+	}
+
+	var transcript string
+	if *command.title == "" {
+		// Get title if not provided
+		command.title, transcript = generateTranscript(conversation)
+	} else {
+		_, transcript = generateTranscript(conversation)
+	}
+
+	// Now that we have the final title, check if the article exists
+	newArticleURL, missing, err := getArticleURL(*command.title)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	sectionExists, _ := sectionExists(*command.title, *command.section)
+
+	// If clobber is set and the page already exists,
+	// Send the user a BlockKit form and do nothing else.
+	if *(command.clobber) && (!missing || (len(*command.section) > 0 && sectionExists)) {
+		askToClobber(ev.Channel, ev.User, ev.ThreadTimeStamp, newArticleURL)
+		return
+	}
+
+	// Publish the content to the wiki. If the article doesn't exist,
+	// then create it. If the section doesn't exist, then create it.
+	err = publishToWiki(!missing, *command.title, *command.section, transcript)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Now that it has been published and definitely exists, get
+	// the URL again
+	if missing {
+		newArticleURL, _, err = getArticleURL(*command.title)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
+	// Post ephemeral message to user
+	_, err = client.PostEphemeral(ev.Channel, ev.User, slack.MsgOptionTS(ev.ThreadTimeStamp), slack.MsgOptionText(fmt.Sprintf("Article saved! You can find it at: %s", newArticleURL), false))
+	if err != nil {
+		fmt.Printf("failed posting message: %v", err)
+	}
+
+}
+
+*/
+
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		return
 	}
 }
 
+/*
 func appendResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		return
@@ -136,3 +263,4 @@ func interactResp() func(c *gin.Context) {
 		return
 	}
 }
+*/
