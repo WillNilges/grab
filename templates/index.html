@@ -1,31 +1,32 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title>Welcome</title>
-	<link rel="stylesheet" type="text/css" href="/static/css/styles.css">
+    <title>Grab</title>
+    <link rel="stylesheet" type="text/css" href="../static/css/styles.css">
+    <link rel="icon" type="image/png" href="../static/images/grabbit_head.png">
 </head>
 <body>
-	<h1>Welcome to Grab!</h1>
-	<h2>Please enter your MediaWiki credentials</h2>
-	<form class="formBody" action="/install/submit" method="POST">
-		<label for="username">Username:</label>
-		<input type="text" id="username" name="username" required><br>
+    <h1>Grab</h1>
+    <h2>Please enter your MediaWiki credentials</h2>
+    <form class="formBody" action="/install/submit" method="POST">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required><br>
 
-		<label for="password">Password:</label>
-		<input type="password" id="password" name="password" required><br>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required><br>
 
-		<label for="url">URL:</label>
-		<input type="url" id="url" name="url" required><br>
+        <label for="url">URL</label>
+        <input type="url" id="url" name="url" required><br>
 
-		<label for="domain">Domain:</label>
-		<input type="domain" id="domain" name="domain" required><br>
+        <label for="domain">Domain</label>
+        <input type="domain" id="domain" name="domain" required><br>
 
-		<input type="hidden" name="code" value="{{ .Code }}">
+        <input type="hidden" name="code" value="{{ .Code }}">
 
-		<div style="height: 40px;">
-		</div>
+        <div style="height: 40px;">
+        </div>
 
-		<button type="submit">Submit</button>
-	</form>
+        <button type="submit">Submit</button>
+    </form>
 </body>
 </html>

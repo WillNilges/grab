@@ -1,12 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap');
+
 body {
-    background-color: #333;
-    color: white;
+    background-color: #0d5a2a;
+    color: #179a48;
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    font-family: 'IBM Plex Sans';
+    font-family: 'Inter';
+}
+
+h1 {
+    font-size: 230px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    font-family: 'Inter';
 }
 
 h2 {
@@ -16,14 +26,39 @@ h2 {
 .formBody {
     display: flex;
     justify-content: center;
+    align-items: center;
     flex-flow: column;
     width: 200px;
-    margin:20px;
-}
-.formBody label {
-    padding-top: 10px;
+    margin: 20px;
 }
 
-.formBody button {
-    padding: 10px;
-}
+    .formBody label {
+        padding-top: 0px;
+        padding-bottom: 5px;
+        font-size: 20px
+    }
+
+    .formBody input {
+        border-radius: 222px;
+        border: 3px solid #179A48;
+        background-color: #052611;
+        height: 30px;
+        width: 250px;
+        padding-left: 12px;
+        padding-right: 12px;
+        font-size: 20px;
+        font-family: 'Inter';
+    }
+
+    .formBody button {
+        border-radius: 222px;
+        border: 3px solid #179A48;
+        background-color: #093c1c;
+        height: 50px;
+        width: 230px;
+        padding-left: 12px;
+        padding-right: 12px;
+        font-size: 20px;
+        font-family: 'Inter';
+        color: #29ff79;
+    }
