@@ -153,6 +153,7 @@ func interactionResp() func(c *gin.Context) {
 			if payload.CallbackID == GrabInteractionAppendThreadTranscript {
 				// Define blocks
 
+				// === TEXT BLOCK AT THE TOP OF MESSAGE ===
 				messageText := slack.NewSectionBlock(
 					slack.NewTextBlockObject(
 						"mrkdwn",
@@ -163,18 +164,29 @@ func interactionResp() func(c *gin.Context) {
 					nil,
 					nil,
 				)
+
+				// If you change this section, the JSON that selects things out of the Raw State will break.
+				// === ARTICLE TITLE INPUT ===
 				articleTitleText := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
 				articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Provide a title for this article", false, false)
 				articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "article_title")
 				// Notice that blockID is a unique identifier for a block
 				articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
 
+				// === ARTICLE SECTION INPUT ===
 				articleSectionText := slack.NewTextBlockObject("plain_text", "Article Section", false, false)
 				articleSectionPlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, place it under a section", false, false)
 				articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_section")
 				// Notice that blockID is a unique identifier for a block
 				articleSection := slack.NewInputBlock("Article Section", articleSectionText, nil, articleSectionElement)
 
+				// === CLOBBER CHECKBOX ===
+				clobberCheckboxOptionText := slack.NewTextBlockObject("plain_text", "Overwrite existing content", false, false)
+				clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", "By selecting this, any data already present under the provided article/section will be ERASED.", false, false)
+				clobberCheckbox := slack.NewCheckboxGroupsBlockElement("clobber", slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText))
+				clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
+
+				// === CONFIRM BUTTON ===
 				confirmButton := slack.NewButtonBlockElement(
 					GrabInteractionAppendThreadTranscriptConfirm,
 					"CONFIRM",
@@ -182,6 +194,7 @@ func interactionResp() func(c *gin.Context) {
 				)
 				confirmButton.Style = "primary"
 
+				// === CANCEL BUTTON ===
 				cancelButton := slack.NewButtonBlockElement(
 					GrabInteractionAppendThreadTranscriptCancel,
 					"CANCEL",
@@ -198,8 +211,10 @@ func interactionResp() func(c *gin.Context) {
 					messageText,
 					articleTitle,
 					articleSection,
+					clobberBox,
 					buttons,
 				)
+
 				var instance Instance
 				instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
 				if err != nil {
@@ -222,22 +237,41 @@ func interactionResp() func(c *gin.Context) {
 		} else if payload.Type == "block_actions" {
 			firstBlockAction := payload.ActionCallback.BlockActions[0]
 			if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptConfirm {
+				fmt.Println(string(payload.RawState))
 				v, err := jason.NewObjectFromBytes(payload.RawState)
 				if err != nil {
 					log.Println(err)
 					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
 					return
 				}
+
+				// Get user-provided article title
 				articleTitle, err := v.GetString("values", "Article Title", "article_title", "value")
 				if err != nil {
 					log.Println("Couldn't parse article title: ", err)
 				}
+
+				// Get user-provided article section
 				articleSection, err := v.GetString("values", "Article Section", "article_section", "value")
 				if err != nil {
 					log.Println("Couldn't parse section title: ", err)
 				}
 
-				fmt.Println(articleTitle, " / ", articleSection)
+				// Check if we should clobber or not
+				clobber := false
+				clobberBox, _ := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
+				if err != nil {
+					log.Println("Couldn't parse clobber checkbox value: ", err)
+				} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
+					fmt.Println(clobberBox)
+					clobberConfirmed, err := clobberBox[0].GetString("value")
+					if err != nil {
+						log.Println("Couldn't parse clobber checkbox value: ", err)
+					}
+					clobber = strings.Contains("confirmed", clobberConfirmed)
+				}
+
+				fmt.Println(articleTitle, " / ", articleSection, " / ", clobber)
 
 				// OK, now actually post it to the wiki.
 				var instance Instance
@@ -278,7 +312,7 @@ func interactionResp() func(c *gin.Context) {
 
 				// Publish the content to the wiki. If the article doesn't exist,
 				// then create it. If the section doesn't exist, then create it.
-				err = publishToWiki(w, false, articleTitle, articleSection, transcript)
+				err = publishToWiki(w, clobber, articleTitle, articleSection, transcript)
 				if err != nil {
 					log.Println(err)
 					return

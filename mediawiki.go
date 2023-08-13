@@ -20,19 +20,25 @@ import (
 
 // Helper function for putting things on the wiki. Can easily control how content
 // gets published by setting or removing variables
-func publishToWiki(w *mwclient.Client, append bool, title string, sectionTitle string, convo string) (err error) {
+func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle string, convo string) (err error) {
 	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
 	parameters := map[string]string{
-		"action":  "edit",
-		"title":   title,
-		"text":    convo,
-		"bot":     "true",
-		"summary": "Grab publishToWiki",
+		"action":     "edit",
+		"title":      title,
+		"appendtext": "\n\n" + convo, // Append some newlines so he gets formatted nicely
+		"bot":        "true",
+		"summary":    "Grab publishToWiki append section " + sectionTitle,
+	}
+
+	if clobber {
+		delete(parameters, "appendtext")
+		parameters["text"] = convo
+		parameters["summary"] = fmt.Sprintf("Grab publishToWiki clobber section %s", sectionTitle)
 	}
 
 	if sectionTitle != "" {
 		sectionExists, _ := sectionExists(w, title, sectionTitle)
-		if sectionExists && !append {
+		if sectionExists && clobber {
 			// If we're clobbering a section, we need to delete it and then
 			// re-make it. Absolutely not ideal, because if a section exists
 			// in the middle of the page, it will move it to the end.
@@ -59,13 +65,6 @@ func publishToWiki(w *mwclient.Client, append bool, title string, sectionTitle s
 			parameters["section"] = "new"
 			parameters["sectiontitle"] = sectionTitle
 		}
-	}
-
-	if append {
-		convo = "\n\n" + convo // Prepend some newlines so that he gets formatted properly
-		delete(parameters, "text")
-		parameters["appendtext"] = convo
-		parameters["summary"] = fmt.Sprintf("Grab publishToWiki append section %s", sectionTitle)
 	}
 
 	// Make the request.
