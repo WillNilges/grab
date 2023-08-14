@@ -19,6 +19,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type GrabCallbackIDs string
+type GrabBlockActionIDs string
+
+const (
+	// Callback ID
+	GrabInteractionAppendThreadTranscript = "append_thread_transcript"
+	// Block Action IDs for that Callback ID
+	GrabInteractionAppendThreadTranscriptConfirm = "append_thread_transcript_confirm"
+	GrabInteractionAppendThreadTranscriptCancel  = "append_thread_transcript_cancel"
+)
+
 func installResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		_, errExists := c.GetQuery("error")
@@ -105,7 +116,7 @@ func eventResp() func(c *gin.Context) {
 				json.Unmarshal(*ce.InnerEvent, am)
 				err := handleMention(ce, am)
 				if err != nil {
-					fmt.Println("Error responding to thread: ", err)
+					log.Println("Error responding to thread: ", err)
 					c.String(http.StatusInternalServerError, "Could not respond to thread: %s", err.Error())
 				}
 			case string(slackevents.AppUninstalled):
@@ -125,9 +136,6 @@ func eventResp() func(c *gin.Context) {
 
 // TODO: Do we really need this?
 func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (err error) {
-
-	fmt.Println(am)
-	//command, err := interpretCommand(tokenizeCommand(ev.Text))
 	// Retrieve credentials to log into Slack and MediaWiki
 	var instance Instance
 	instance, err = selectInstanceByTeamID(db, ce.TeamID)
@@ -147,17 +155,6 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 	}
 	return nil
 }
-
-type GrabCallbackIDs string
-type GrabBlockActionIDs string
-
-const (
-	// Callback ID
-	GrabInteractionAppendThreadTranscript = "append_thread_transcript"
-	// Block Action IDs for that Callback ID
-	GrabInteractionAppendThreadTranscriptConfirm = "append_thread_transcript_confirm"
-	GrabInteractionAppendThreadTranscriptCancel  = "append_thread_transcript_cancel"
-)
 
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -192,6 +189,23 @@ func interactionResp() func(c *gin.Context) {
 
 		if payload.Type == "message_action" {
 			if payload.CallbackID == GrabInteractionAppendThreadTranscript {
+				// First of all, are we in a thread?
+				if payload.Message.ThreadTimestamp == "" {
+					_, err = slackClient.PostEphemeral(
+						payload.Channel.ID,
+						payload.User.ID,
+						slack.MsgOptionText(
+							"Sorry, I only work inside threads!",
+							false,
+						),
+					)
+					if err != nil {
+						fmt.Printf("failed posting message: %v", err)
+					}
+					c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
+					return
+				}
+
 				// Define blocks
 
 				// === TEXT BLOCK AT THE TOP OF MESSAGE ===
@@ -259,7 +273,7 @@ func interactionResp() func(c *gin.Context) {
 		} else if payload.Type == "block_actions" {
 			firstBlockAction := payload.ActionCallback.BlockActions[0]
 			if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptConfirm {
-				fmt.Println(string(payload.RawState))
+
 				v, err := jason.NewObjectFromBytes(payload.RawState)
 				if err != nil {
 					log.Println(err)
