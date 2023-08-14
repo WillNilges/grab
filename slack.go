@@ -103,7 +103,11 @@ func eventResp() func(c *gin.Context) {
 				log.Println("Got mentioned")
 				am := &slackevents.AppMentionEvent{}
 				json.Unmarshal(*ce.InnerEvent, am)
-				handleMention(am)
+				err := handleMention(ce, am)
+				if err != nil {
+					fmt.Println("Error responding to thread: ", err)
+					c.String(http.StatusInternalServerError, "Could not respond to thread: %s", err.Error())
+				}
 			case string(slackevents.AppUninstalled):
 				log.Printf("App uninstalled from %s.\n", event.TeamID)
 				err = deleteInstance(db, event.TeamID)
@@ -119,10 +123,28 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
-// DEBUG: Fuck fuck fuck
-func handleMention(am *slackevents.AppMentionEvent) (err error) {
+// TODO: Do we really need this?
+func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (err error) {
 
+	fmt.Println(am)
 	//command, err := interpretCommand(tokenizeCommand(ev.Text))
+	// Retrieve credentials to log into Slack and MediaWiki
+	var instance Instance
+	instance, err = selectInstanceByTeamID(db, ce.TeamID)
+	if err != nil {
+		return err
+	}
+	slackClient := slack.New(instance.SlackAccessToken)
+
+	_, err = slackClient.PostEphemeral(
+		am.Channel,
+		am.User,
+		slack.MsgOptionTS(am.ThreadTimeStamp),
+		slack.MsgOptionText("Hello, I'm Grab! A bot that can transcribe Slack threads to your knowledge base.\n\nTo use me, select my shortcut from the dropdown on a threaded message.", false),
+	)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -145,9 +167,28 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack interaction payload: %s", err.Error())
 			return
 		}
-		//fmt.Println("THIS IS YOUR PAYLOAD >>> ", payload)
-		//fmt.Println(payload.ActionCallback.BlockActions[0])
-		//fmt.Println(payload.Type)
+
+		// Retrieve credentials to log into Slack and MediaWiki
+		var instance Instance
+		instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
+		if err != nil {
+			log.Println(err)
+			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
+		}
+		slackClient := slack.New(instance.SlackAccessToken)
+
+		w, err := mwclient.New(instance.MediaWikiURL, "Grab")
+		if err != nil {
+			log.Println(err)
+			c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+			return
+		}
+		err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
+		if err != nil {
+			log.Println(err)
+			c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+			return
+		}
 
 		if payload.Type == "message_action" {
 			if payload.CallbackID == GrabInteractionAppendThreadTranscript {
@@ -168,7 +209,7 @@ func interactionResp() func(c *gin.Context) {
 				// If you change this section, the JSON that selects things out of the Raw State will break.
 				// === ARTICLE TITLE INPUT ===
 				articleTitleText := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
-				articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Provide a title for this article", false, false)
+				articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, Provide a title for this article", false, false)
 				articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "article_title")
 				// Notice that blockID is a unique identifier for a block
 				articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
@@ -187,25 +228,13 @@ func interactionResp() func(c *gin.Context) {
 				clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
 
 				// === CONFIRM BUTTON ===
-				confirmButton := slack.NewButtonBlockElement(
-					GrabInteractionAppendThreadTranscriptConfirm,
-					"CONFIRM",
-					slack.NewTextBlockObject("plain_text", "CONFIRM", false, false),
-				)
+				confirmButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptConfirm, "CONFIRM", slack.NewTextBlockObject("plain_text", "CONFIRM", false, false))
 				confirmButton.Style = "primary"
 
 				// === CANCEL BUTTON ===
-				cancelButton := slack.NewButtonBlockElement(
-					GrabInteractionAppendThreadTranscriptCancel,
-					"CANCEL",
-					slack.NewTextBlockObject("plain_text", "CANCEL", false, false),
-				)
+				cancelButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptCancel, "CANCEL", slack.NewTextBlockObject("plain_text", "CANCEL", false, false))
 
-				buttons := slack.NewActionBlock(
-					"",
-					confirmButton,
-					cancelButton,
-				)
+				buttons := slack.NewActionBlock("", confirmButton, cancelButton)
 
 				blockMsg := slack.MsgOptionBlocks(
 					messageText,
@@ -215,14 +244,7 @@ func interactionResp() func(c *gin.Context) {
 					buttons,
 				)
 
-				var instance Instance
-				instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
-				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
-				}
-
-				_, err = slack.New(instance.SlackAccessToken).PostEphemeral(
+				_, err = slackClient.PostEphemeral(
 					payload.Channel.ID,
 					payload.User.ID,
 					slack.MsgOptionTS(payload.Message.ThreadTimestamp),
@@ -274,32 +296,12 @@ func interactionResp() func(c *gin.Context) {
 				fmt.Println(articleTitle, " / ", articleSection, " / ", clobber)
 
 				// OK, now actually post it to the wiki.
-				var instance Instance
-				instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
-				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
-				}
-				slackClient := slack.New(instance.SlackAccessToken)
-
-				w, err := mwclient.New(instance.MediaWikiURL, "Grab")
-				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-					return
-				}
-				err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
-				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-					return
-				}
-
 				var conversation []slack.Message
 				var transcript string
 				conversation, err = getThreadConversation(slackClient, payload.Channel.ID, payload.Container.ThreadTs)
 				if err != nil {
 					log.Println("Failed to get thread conversation: ", err)
+					c.String(http.StatusInternalServerError, "Failed to get thread conversation: %s", err.Error())
 					return
 				}
 

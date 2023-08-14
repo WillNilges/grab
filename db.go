@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/uptrace/bun"
 )
@@ -55,8 +54,6 @@ func selectInstanceByTeamID(db *bun.DB, teamID string) (instance Instance, err e
 	if err != nil {
 		return instance, err
 	}
-	fmt.Println("INSTANCE: ", instance)
-
 	return instance, nil
 }
 
