@@ -1,29 +1,127 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Raleway&display=swap');
+/* @import url('https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=swap'); */
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+:root {
+    --background:#333;
+    --text: #DDD;
+    --secondaryText: #DDD;
+    --normalAccent: #88c86c;
+    --hoverAccent: #008746;
+    --clickedAccent: #034f2a;
+}
+
 body {
-    background-color: #333;
-    color: white;
+    background-color: var(--background);
+    color: var(--text);
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    font-family: 'IBM Plex Sans';
+    font-family: 'Raleway';
 }
 
-h2 {
-    color: #999;
+.exposition {
+    color: var(--secondaryText);
+    width: 70%
 }
+
+code {
+    color: var(--normalAccent);
+    font-weight: normal;
+    font-size: 24px;
+    font-family: 'Share Tech Mono';
+}
+
+ul {
+    list-style: none;
+    line-height: 3;
+    font-size: 20px;
+}
+
+li::before {
+    content: "— ";
+    font-weight: bold;
+}
+
+a {
+    color: var(--normalAccent);
+}
+
+a:hover {
+    color: var(--hoverAccent); 
+}
+
+a:focus {
+    color: var(--clickedAccent);
+}
+
+a:visited {
+    color: var(--normalAccent);
+}
+
+/* Form stuff */
 
 .formBody {
     display: flex;
     justify-content: center;
     flex-flow: column;
-    width: 200px;
+    width: 350px;
     margin:20px;
+    font-family: 'Raleway';
 }
 .formBody label {
     padding-top: 10px;
 }
 
-.formBody button {
-    padding: 10px;
+input, select {
+    width: 100%;
+    padding: 12px 20px;
+    margin: 8px 0;
+    display: inline-block;
+    border: none;
+    border-bottom: 2px solid var(--normalAccent); 
+    box-sizing: border-box;
+    background-color: var(--background);
+    color: var(--text);
+    font-family: 'Raleway';
 }
+
+input:focus {
+    border: none;
+    border-bottom: 2px solid var(--hoverAccent);
+} 
+
+
+input,
+input::-webkit-input-placeholder {
+    font-size: 20px;
+    line-height: 3;
+    font-family: 'Raleway';
+}
+
+button {
+    width: 100%;
+    padding: 14px 20px;
+    margin: 8px 0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+
+    font-family: 'Raleway';
+    color: var(--background);
+    font-size: 30px;
+    font-weight: 600;
+
+    background-color: var(--normalAccent);
+  }
+  
+  button:hover {
+    color: var(--text);
+    background-color: var(--hoverAccent);
+  }
+
+  button:focus {
+    color: var(--text);
+    background-color: var(--clickedAccent);
+  }
