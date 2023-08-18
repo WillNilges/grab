@@ -70,6 +70,7 @@ a:visited {
     display: flex;
     justify-content: center;
     flex-flow: row;
+    align-self:stretch;
 }
 
 /* Form stuff */
