@@ -330,6 +330,10 @@ func interactionResp() func(c *gin.Context) {
 					clobber = strings.Contains("confirmed", clobberConfirmed)
 				}
 
+				// Ack so we don't die when eating large messages
+				log.Println("Command received. Saving thread...")
+				c.String(http.StatusOK, "Command received. Saving thread...")
+
 				// OK, now actually post it to the wiki.
 				var conversation []slack.Message
 				var transcript string
@@ -352,6 +356,9 @@ func interactionResp() func(c *gin.Context) {
 					c.String(http.StatusInternalServerError, "Error generating transcript: %s", err.Error())
 					return
 				}
+
+				log.Println("Thread downloaded. Publishing to wiki...")
+				c.String(http.StatusOK, "Thread downloaded. Publishing to wiki...")
 
 				// Publish the content to the wiki. If the article doesn't exist,
 				// then create it. If the section doesn't exist, then create it.
