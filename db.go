@@ -17,7 +17,6 @@ type Instance struct {
 	MediaWikiURL     string
 	MediaWikiUname   string
 	MediaWikiPword   string
-	MediaWikiDomain  string
 }
 
 // Check if we need to initialize the database, and do so if that's the case

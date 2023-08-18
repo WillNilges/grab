@@ -19,10 +19,6 @@ import (
 var config Config
 
 type Config struct {
-	WikiURL     string
-	Username    string
-	Password    string
-	Domain      string
 	PostgresURI string
 }
 
@@ -53,7 +49,8 @@ func main() {
 	app.LoadHTMLGlob("templates/*")
 	app.Static("/static", "./static")
 
-	installGroup := app.Group("/install")
+	slackGroup := app.Group("/slack")
+	installGroup := slackGroup.Group("/install")
 	// First, the user goes to the form to submit mediawiki creds
 	installGroup.GET("/", func(c *gin.Context) {
 		code := c.DefaultQuery("code", "") // Retrieve the code parameter from the query string
@@ -72,20 +69,22 @@ func main() {
 
 		c.Redirect(
 			http.StatusSeeOther,
-			"/install/authorize?code="+code+"&mediaWikiUname="+wikiUsername+"&mediaWikiPword="+wikiPassword+"&mediaWikiURL="+wikiUrl+"&mediaWikiDomain="+wikiDomain,
+			"/slack/install/authorize?code="+code+"&mediaWikiUname="+wikiUsername+"&mediaWikiPword="+wikiPassword+"&mediaWikiURL="+wikiUrl+"&mediaWikiDomain="+wikiDomain,
 		)
 	})
 	// Then we use them while we set up the DB and do Slack things
 	installGroup.Any("/authorize", installResp())
 
 	// Serve initial interactions with the bot
-	eventGroup := app.Group("/event")
+	eventGroup := slackGroup.Group("/event")
+	eventGroup.Use(signatureVerification)
 	//eventGroup.Use(signatureVerification)
 	eventGroup.POST("/handle", eventResp())
 	// eventGroup.POST("/grab", appendResp())
 	// eventGroup.POST("/range", rangeResp())
 
-	interactionGroup := app.Group("/interaction")
+	interactionGroup := slackGroup.Group("/interaction")
+	interactionGroup.Use(signatureVerification)
 	interactionGroup.POST("/handle", interactionResp())
 
 	_ = app.Run()

@@ -71,7 +71,7 @@ func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle 
 	return w.Edit(parameters)
 }
 
-func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) {
+func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -87,7 +87,7 @@ func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) 
 
 	// --- Authentication ---
 	// Steal cookies from the mediawiki library
-	cookieURL, _ := url.Parse(config.WikiURL)
+	cookieURL, _ := url.Parse(instance.MediaWikiURL)
 	cookieJar.SetCookies(cookieURL, w.DumpCookies())
 
 	// Get csrf token
@@ -103,12 +103,12 @@ func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) 
 	// Get the file's name
 	fileInfo, err := file.Stat()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Println("Error:", err)
 		return "", err
 	}
 	// Extract the basename from the file's name
 	basename := filepath.Base(fileInfo.Name())
-	fmt.Println("File size: ", fileInfo.Size())
+	//log.Println("File size: ", fileInfo.Size())
 
 	// Parameters for file
 	writer.WriteField("action", "upload")
@@ -127,13 +127,17 @@ func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) 
 		return basename, err
 	}
 	writer.Close()
-	req, err := http.NewRequest("POST", config.WikiURL, bytes.NewReader(body.Bytes()))
+	req, err := http.NewRequest(http.MethodPost, instance.MediaWikiURL, bytes.NewReader(body.Bytes()))
 
 	if err != nil {
 		return basename, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	rsp, _ := client.Do(req)
+	rsp, err := client.Do(req)
+	if err != nil {
+		log.Println("An error occurred uploading content to wiki: ", err)
+		return "", err
+	}
 	if rsp.StatusCode != http.StatusOK {
 		log.Printf("Request failed with response code: %d", rsp.StatusCode)
 	}
@@ -142,7 +146,6 @@ func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) 
 	if err != nil {
 		return basename, err
 	}
-	fmt.Println("Response Body:", string(responseBody))
 
 	// MediaWiki will get angery if we try to upload a duplicate file. It will
 	// kindly give us the name of the duplicate file, and we can just return that
@@ -152,13 +155,13 @@ func uploadToWiki(w *mwclient.Client, path string) (filename string, err error) 
 		// Get the "duplicate" value
 		warnings, err := rspJson.GetObject("upload", "warnings")
 		if err != nil {
-			fmt.Println("Jason Error:", err)
+			log.Println("Jason Error:", err)
 			return basename, err
 		}
 
 		duplicateArray, err := warnings.GetStringArray("duplicate")
 		if err != nil {
-			fmt.Println("Jason Error:", err)
+			log.Println("Jason Error:", err)
 			return basename, err
 		}
 		if len(duplicateArray) > 0 {

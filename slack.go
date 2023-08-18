@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,6 +30,31 @@ const (
 	GrabInteractionAppendThreadTranscriptConfirm = "append_thread_transcript_confirm"
 	GrabInteractionAppendThreadTranscriptCancel  = "append_thread_transcript_cancel"
 )
+
+func signatureVerification(c *gin.Context) {
+	verifier, err := slack.NewSecretsVerifier(c.Request.Header, os.Getenv("SIGNATURE_SECRET"))
+	if err != nil {
+		c.String(http.StatusBadRequest, "error initializing signature verifier: %s", err.Error())
+		return
+	}
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "error reading request body: %s", err.Error())
+		return
+	}
+	bodyBytesCopy := make([]byte, len(bodyBytes))
+	copy(bodyBytesCopy, bodyBytes)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytesCopy))
+	if _, err = verifier.Write(bodyBytes); err != nil {
+		c.String(http.StatusInternalServerError, "error writing request body bytes for verification: %s", err.Error())
+		return
+	}
+	if err = verifier.Ensure(); err != nil {
+		c.String(http.StatusUnauthorized, "error verifying slack signature: %s", err.Error())
+		return
+	}
+	c.Next()
+}
 
 func installResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -63,7 +89,6 @@ func installResp() func(c *gin.Context) {
 		instance.MediaWikiUname = c.Query("mediaWikiUname")
 		instance.MediaWikiPword = c.Query("mediaWikiPword")
 		instance.MediaWikiURL = c.Query("mediaWikiURL")
-		instance.MediaWikiDomain = c.Query("mediaWikiDomain")
 
 		err = insertInstance(db, instance)
 		if err != nil {
@@ -265,7 +290,7 @@ func interactionResp() func(c *gin.Context) {
 					blockMsg,
 				)
 				if err != nil {
-					fmt.Println(err)
+					log.Println("Error posting ephemeral message: ", err)
 					c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
 					return
 				}
@@ -299,15 +324,12 @@ func interactionResp() func(c *gin.Context) {
 				if err != nil {
 					log.Println("Couldn't parse clobber checkbox value: ", err)
 				} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
-					fmt.Println(clobberBox)
 					clobberConfirmed, err := clobberBox[0].GetString("value")
 					if err != nil {
 						log.Println("Couldn't parse clobber checkbox value: ", err)
 					}
 					clobber = strings.Contains("confirmed", clobberConfirmed)
 				}
-
-				fmt.Println(articleTitle, " / ", articleSection, " / ", clobber)
 
 				// OK, now actually post it to the wiki.
 				var conversation []slack.Message
@@ -321,9 +343,9 @@ func interactionResp() func(c *gin.Context) {
 
 				if articleTitle == "" {
 					// Get title if not provided
-					articleTitle, transcript = generateTranscript(slackClient, w, conversation)
+					articleTitle, transcript = generateTranscript(&instance, slackClient, w, conversation)
 				} else {
-					_, transcript = generateTranscript(slackClient, w, conversation)
+					_, transcript = generateTranscript(&instance, slackClient, w, conversation)
 				}
 
 				// Publish the content to the wiki. If the article doesn't exist,
@@ -389,7 +411,7 @@ func getThreadConversation(api *slack.Client, channelID string, threadTs string)
 // Adds human readable timestamp to the top of the transcript
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-func generateTranscript(api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string) {
+func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string) {
 	// Define the desired format layout
 	timeLayout := "2006-01-02 at 15:04"
 	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
@@ -425,7 +447,7 @@ func generateTranscript(api *slack.Client, w *mwclient.Client, conversation []sl
 		if len(conversationUsers[message.User]) == 0 {
 			msgUser, err = api.GetUserInfo(message.User)
 			if err != nil {
-				fmt.Println(err)
+				log.Println(err)
 			} else {
 				conversationUsers[message.User] = msgUser.Name
 			}
@@ -438,25 +460,25 @@ func generateTranscript(api *slack.Client, w *mwclient.Client, conversation []sl
 
 		// Check for attachements
 		for _, attachment := range message.Attachments {
-			fmt.Println("Attachment!!!!")
 			// Dead-simple way to grab text attachments.
 			if attachment.Text != "" {
-				fmt.Println(attachment.Text)
 				transcript += "\n\n<pre>" + attachment.Text + "</pre>"
 			}
 		}
 
 		// I guess files are different.
 		for _, file := range message.Files {
-			fmt.Println(file.Mimetype)
-			fmt.Println(file.URLPrivateDownload)
+			// Useful Debugging things
+			//fmt.Println(file.Mimetype)
+			//fmt.Println(file.URLPrivateDownload)
+
 			// Download the file from Slack
 			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
 			path := fmt.Sprintf("/tmp/%s", basename)
 			tempFile, err := os.Create(path)
 			defer os.Remove(path)
 			if err != nil {
-				fmt.Println("Error creating output file:", err)
+				log.Println("Error creating output file:", err)
 				return
 			}
 			err = api.GetFile(file.URLPrivateDownload, tempFile)
@@ -475,7 +497,7 @@ func generateTranscript(api *slack.Client, w *mwclient.Client, conversation []sl
 				// Upload it to MediaWiki. For some reason, I can't just re-use
 				// the file header. The API doesn't like it.
 				var fileTitle string
-				fileTitle, err = uploadToWiki(w, path)
+				fileTitle, err = uploadToWiki(instance, w, path)
 				if err != nil {
 					log.Println("Error uploading file: ", err)
 					return
