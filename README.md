@@ -102,7 +102,10 @@ _Full transparency: This app is free software, GPL3'ed. I want it to stay that w
 
 This app is designed to be containerized and deployed on OpenShift or other K8s-flavored platform. Deploy it from Git, build it, and provide the environment variables listed in `.env.template.`
 
-In the `.env` file, You MUST use `<wiki url>/api.php` to point to your wiki!!!
+#### Wisdom
+
+- In the `.env` file, You MUST use `<wiki url>/api.php` to point to your wiki!!!
+- The app only initializes the DB once on startup, if it needs to. If you drop your DB, restart the app.
 
 ### Credits
 
