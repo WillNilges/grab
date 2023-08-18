@@ -19,11 +19,15 @@ body {
     align-items: center;
     flex-direction: column;
     font-family: 'Raleway';
+
+    @media (max-width: 800px) {
+        font-size: 200px;
+    }
 }
 
 .exposition {
     color: var(--secondaryText);
-    width: 70%
+    width: 70%;
 }
 
 code {
@@ -58,6 +62,14 @@ a:focus {
 
 a:visited {
     color: var(--normalAccent);
+}
+
+#logos {
+    /* background-color: var(--background); */
+
+    display: flex;
+    justify-content: center;
+    flex-flow: row;
 }
 
 /* Form stuff */
@@ -125,3 +137,62 @@ button {
     color: var(--text);
     background-color: var(--clickedAccent);
   }
+
+@media screen and (min-width: 1366px) {
+    #reqsAndBoxes {
+        width: 70%;
+        display: flex;
+        justify-content: space-evenly;
+        flex-flow: row;
+    }
+}
+
+#desktopLogos {
+    display: block;
+}
+
+#mobileLogos {
+    display: none;
+}
+
+@media 
+(-webkit-min-device-pixel-ratio: 2), 
+(min-resolution: 192dpi) { 
+    /* Retina-specific stuff here */
+
+    h1 {
+        font-size: 52px;
+    }
+
+    h2 {
+        font-size: 48px;
+    }
+    li {
+        font-size: 40px;
+    }
+    
+    code {
+        font-size: 48px;
+    }
+
+    input,
+    input::-webkit-input-placeholder {
+        font-size: 40px;
+    }
+
+    button {
+        font-size: 90px;
+    }
+
+    .formBody {
+        font-size: 40px;
+        width:90%;
+    }
+
+    #desktopLogos {
+        display: none;
+    }
+    #mobileLogos {
+        display: block;
+    }
+}

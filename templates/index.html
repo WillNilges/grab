@@ -6,45 +6,74 @@
 	<link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
 </head>
 <body>
-	<img height="100px" src="/static/images/grabbit_head.png"/>
+	<div id="desktopLogos">
+		<div class="header">
+			<div id="logos">
+				<!-- <img height="100px" src="/static/images/MediaWiki-2020-icon-(white).svg"/>
+				<img width="100px" src="/static/images/arrow-left-right-med.svg"/> -->
+				<img height="100px" src="/static/images/grabbit_head.png"/>
+				<img width="100px" src="/static/images/arrow-left-right-med.svg"/>
+				<img height="100px" src="/static/images/Slack-mark-Monochrome-White.svg"/>
+			</div>
+		</div>
+	</div>
+	<div id="mobileLogos">
+		<div class="header">
+			<div id="logos">
+				<!-- <img height="250px" src="/static/images/MediaWiki-2020-icon-(white).svg"/> -->
+				<img height="250px" src="/static/images/grabbit_head.png"/>
+				<img width="250px"  src="/static/images/arrow-left-right-med.svg"/>
+				<img height="250px" src="/static/images/Slack-mark-Monochrome-White.svg"/>
+			</div>
+		</div>
+	</div>
 	<div class="exposition">
 	<h1>Welcome to Grab!</h1>
 	<h2>Grab connects your messaging platform to your knowledge base. To get started, we need access to both, and you're halfway there!</h2>
 	<h2>To make Grab work with MediaWiki, we need a <a href="https://www.mediawiki.org/wiki/Manual:Bot_passwords">Bot Password.</a> This is a "special kind of account that allows access to a user account via the API without the account's main login credentials."</h2>
-	<h2>To create one, go to <code>https://&lt;your_wiki_here&gt;/wiki/Special:BotPasswords</code> and make one called, "Grab". Give it the following permissions:</h2>
-	</div>
-	<ul>
-		<li>High-volume (bot) access</li>
-		<li>Edit existing pages</li>
-		<li>Create, edit, and move pages</li>
-		<li>Upload new files</li>
-		<li>Upload, replace, and move files</li>
-	</ul>
-
-	<div class="exposition" style="width: 100%; text-align: center;">
-		<h2>Then, enter the credentials here.</h2>
+	<h2>To create one, go to <code>https://&lt;your_wiki_here&gt;/wiki/Special:BotPasswords</code> and make one called, "Grab".</h2>
 	</div>
 
-	<form class="formBody" action="/slack/install/submit" method="POST">
-
-		<!-- <label for="url">URL:</label> -->
-		<input type="url" id="url" name="url" placeholder="MediaWiki API URL" required><br>
-
-		<!-- <label for="username">Username:</label> -->
-		<input type="text" id="username" name="username" placeholder="Bot Username" required><br>
-
-		<!-- <label for="password">Password:</label> -->
-		<input type="password" id="password" name="password" placeholder="Bot Password" required><br>
-
-		<!--<label for="domain">Domain:</label>
-		<input type="domain" id="domain" name="domain" required><br>-->
-
-		<input type="hidden" name="code" value="{{ .Code }}">
-
-		<div style="height: 40px;">
+	<div id="reqsAndBoxes">
+		<div>
+			<div class="exposition" style="width: 100%; text-align: center;">
+				<h2>Give it the following permissions:</h2>
+			</div>
+			<ul>
+				<li>High-volume (bot) access</li>
+				<li>Edit existing pages</li>
+				<li>Create, edit, and move pages</li>
+				<li>Upload new files</li>
+				<li>Upload, replace, and move files</li>
+			</ul>
 		</div>
 
-		<button type="submit">Submit</button>
-	</form>
+		<div>
+			<div class="exposition" style="width: 100%; text-align: center;">
+				<h2>Then, enter the credentials here.</h2>
+			</div>
+
+			<form class="formBody" action="/slack/install/submit" method="POST">
+				<!-- <label for="url">URL:</label> -->
+				<input type="url" id="url" name="url" placeholder="MediaWiki API URL" required><br>
+
+				<!-- <label for="username">Username:</label> -->
+				<input type="text" id="username" name="username" placeholder="Bot Username" required><br>
+
+				<!-- <label for="password">Password:</label> -->
+				<input type="password" id="password" name="password" placeholder="Bot Password" required><br>
+
+				<!--<label for="domain">Domain:</label>
+				<input type="domain" id="domain" name="domain" required><br>-->
+
+				<input type="hidden" name="code" value="{{ .Code }}">
+
+				<div style="height: 40px;">
+				</div>
+
+				<button type="submit">Submit</button>
+			</form>
+		</div>
+	</div>
 </body>
 </html>
