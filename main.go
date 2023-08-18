@@ -53,6 +53,16 @@ func main() {
 	installGroup := slackGroup.Group("/install")
 	// First, the user goes to the form to submit mediawiki creds
 	installGroup.GET("/", func(c *gin.Context) {
+		slackError := c.DefaultQuery("error", "")
+		if slackError != "" {
+			slackErrorDescription := c.Query("error_description")
+			c.HTML(http.StatusOK, "error.html", gin.H{
+				"SlackError": slackError,
+				"ErrorDesc":  slackErrorDescription,
+			})
+			return
+		}
+
 		code := c.DefaultQuery("code", "") // Retrieve the code parameter from the query string
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"Code": code, // Pass the code parameter to the template

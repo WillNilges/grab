@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Oh no!</title>
+	<link rel="stylesheet" type="text/css" href="/static/css/styles.css">
+	<link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+</head>
+<body>
+	<div id="desktopLogos">
+		<div class="header">
+			<div id="logos">
+				<!-- <img height="100px" src="/static/images/MediaWiki-2020-icon-(white).svg"/>
+				<img width="100px" src="/static/images/arrow-left-right-med.svg"/> -->
+				<img height="100px" src="/static/images/grabbit_head.png"/>
+				<img width="100px" src="/static/images/arrow-left-right-error.svg"/>
+				<img height="100px" src="/static/images/Slack-mark-Monochrome-White.svg"/>
+			</div>
+		</div>
+	</div>
+	<div id="mobileLogos">
+		<div class="header">
+			<div id="logos">
+				<img height="250px" src="/static/images/grabbit_head.png"/>
+				<img width="250px"  src="/static/images/arrow-left-right-error.svg"/>
+				<img height="250px" src="/static/images/Slack-mark-Monochrome-White.svg"/>
+			</div>
+		</div>
+	</div>
+	<div class="exposition">
+        <h1>Oh no!</h1>
+        <h2>Sorry, but we got an error from Slack:</h2>
+        <p><strong>Error:</strong> {{ .SlackError }}</p>
+        <p><strong>Description:</strong> {{ .ErrorDesc }}</p>
+        <h2>Please return to Slack and try again.</h2>
+	</div>
+</body>
+</html>
