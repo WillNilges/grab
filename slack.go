@@ -225,7 +225,7 @@ func interactionResp() func(c *gin.Context) {
 						),
 					)
 					if err != nil {
-						fmt.Printf("failed posting message: %v", err)
+						log.Printf("failed posting message: %v\n", err)
 					}
 					c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
 					return
@@ -298,7 +298,6 @@ func interactionResp() func(c *gin.Context) {
 		} else if payload.Type == "block_actions" {
 			firstBlockAction := payload.ActionCallback.BlockActions[0]
 			if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptConfirm {
-
 				v, err := jason.NewObjectFromBytes(payload.RawState)
 				if err != nil {
 					log.Println(err)
@@ -320,9 +319,9 @@ func interactionResp() func(c *gin.Context) {
 
 				// Check if we should clobber or not
 				clobber := false
-				clobberBox, _ := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
+				clobberBox, err := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
 				if err != nil {
-					log.Println("Couldn't parse clobber checkbox value: ", err)
+					log.Println("Couldn't parse clobber checkbox array: ", err)
 				} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
 					clobberConfirmed, err := clobberBox[0].GetString("value")
 					if err != nil {
@@ -343,23 +342,31 @@ func interactionResp() func(c *gin.Context) {
 
 				if articleTitle == "" {
 					// Get title if not provided
-					articleTitle, transcript = generateTranscript(&instance, slackClient, w, conversation)
+					articleTitle, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
 				} else {
-					_, transcript = generateTranscript(&instance, slackClient, w, conversation)
+					_, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
+				}
+
+				if err != nil {
+					log.Println("Error generating transcript: ", err)
+					c.String(http.StatusInternalServerError, "Error generating transcript: %s", err.Error())
+					return
 				}
 
 				// Publish the content to the wiki. If the article doesn't exist,
 				// then create it. If the section doesn't exist, then create it.
 				err = publishToWiki(w, clobber, articleTitle, articleSection, transcript)
 				if err != nil {
-					log.Println(err)
+					log.Println("Error publishing to wiki: ", err)
+					c.String(http.StatusInternalServerError, "Error publishing to wiki: %s", err.Error())
 					return
 				}
 
 				// Update the ephemeral message
 				newArticleURL, _, err := getArticleURL(w, articleTitle)
 				if err != nil {
-					log.Println(err)
+					log.Println("Could not get article URL: ", err)
+					c.String(http.StatusInternalServerError, "Error getting article URL: %s", err.Error())
 					return
 				}
 				responseData := fmt.Sprintf(
@@ -385,10 +392,11 @@ func interactionResp() func(c *gin.Context) {
 
 				if err != nil {
 					log.Printf("Failed updating message: %v", err)
+					c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
+					return
 				}
 			}
 		}
-		return
 	}
 }
 
@@ -411,7 +419,7 @@ func getThreadConversation(api *slack.Client, channelID string, threadTs string)
 // Adds human readable timestamp to the top of the transcript
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string) {
+func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string, err error) {
 	// Define the desired format layout
 	timeLayout := "2006-01-02 at 15:04"
 	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
@@ -425,13 +433,8 @@ func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Clien
 		log.Fatalf("Error calling AuthTest: %s", err)
 	}
 
-	// Print the bot's user ID
-	fmt.Printf("Current Time: %s\n", currentTime)
-	fmt.Printf("Bot UserID: %s\n", authTestResponse.UserID)
-
 	// Remove messages sent by Grab	and mentioning Grab
 	// Format conversation into string line-by-line
-	fmt.Printf("Looking for: <@%s>\n", authTestResponse.UserID)
 	var pureConversation []slack.Message
 	conversationUsers := map[string]string{}
 	for _, message := range conversation {
@@ -452,11 +455,10 @@ func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Clien
 				conversationUsers[message.User] = msgUser.Name
 			}
 		}
-		var msgUserName string
-		msgUserName = conversationUsers[message.User]
+		msgUserName := conversationUsers[message.User]
 
 		transcript += msgUserName + ": " + message.Text + "\n\n"
-		fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+		// fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
 
 		// Check for attachements
 		for _, attachment := range message.Attachments {
@@ -475,7 +477,8 @@ func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Clien
 			// Download the file from Slack
 			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
 			path := fmt.Sprintf("/tmp/%s", basename)
-			tempFile, err := os.Create(path)
+			var tempFile *os.File
+			tempFile, err = os.Create(path)
 			defer os.Remove(path)
 			if err != nil {
 				log.Println("Error creating output file:", err)
@@ -486,7 +489,6 @@ func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Clien
 				log.Println("Error getting file from Slack: ", err)
 				return
 			}
-			fmt.Printf("File created at %s\n", path)
 			tempFile.Close()
 			/*
 				Check the file type.
@@ -505,7 +507,8 @@ func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Clien
 				// It'll be like uhhh [[File:name.jpg]] or whatever.
 				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
 			} else if strings.Contains(file.Mimetype, "text") {
-				fileContents, err := os.ReadFile(path)
+				var fileContents []byte
+				fileContents, err = os.ReadFile(path)
 				if err != nil {
 					log.Println("Error reading file: ", err)
 					return
@@ -515,5 +518,5 @@ func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Clien
 		}
 	}
 
-	return pureConversation[0].Text, transcript
+	return pureConversation[0].Text, transcript, nil
 }
