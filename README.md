@@ -100,7 +100,25 @@ _Full transparency: This app is free software, GPL3'ed. I want it to stay that w
 
 ### Setup
 
-This app is designed to be containerized and deployed on OpenShift or other K8s-flavored platform. Deploy it from Git, build it, and provide the environment variables listed in `.env.template.`
+This app is designed to be containerized and deployed on OpenShift or other K8s-flavored platform. Deploy it from Git, build it, and provide the environment variables listed in `.env.template.` You'll need a postgres database somewhere.
+
+To serve your dev instance, you can use ngrok:
+
+```
+ngrok http --domain <your ngrok domain> 8080
+```
+
+You can run grab baremetal in development:
+
+```
+go run .
+```
+
+You can also debug it with `gdb` if you need to:
+
+```
+ go build -gcflags=all="-N -l" && gdb grab
+```
 
 #### Wisdom
 
