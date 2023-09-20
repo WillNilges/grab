@@ -14,6 +14,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 var config Config
@@ -45,6 +46,13 @@ func init() {
 }
 
 func main() {
+	// Start the Datadog tracer
+	tracer.Start(
+	        tracer.WithEnv("prod"),
+	        tracer.WithService("test-go"),
+	        tracer.WithServiceVersion("abc123"),
+    	)
+	
 	app := gin.Default()
 	app.LoadHTMLGlob("templates/*")
 	app.Static("/static", "./static")
@@ -98,4 +106,8 @@ func main() {
 	interactionGroup.POST("/handle", interactionResp())
 
 	_ = app.Run()
+	
+	// When the tracer is stopped, it will flush everything it has to the Datadog Agent before quitting.
+	// Make sure this line stays in your main function.
+	defer tracer.Stop()
 }
