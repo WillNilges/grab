@@ -1,4 +1,4 @@
-package grab
+package main
 
 import (
 	"bytes"
@@ -31,7 +31,13 @@ const (
 	GrabInteractionAppendThreadTranscriptCancel  = "append_thread_transcript_cancel"
 )
 
-func signatureVerification(c *gin.Context) {
+type slackConnector struct {
+	api slack.Client
+	i Instance
+}
+
+// Middleware to verify that the API request is legit
+func slackVerify(c *gin.Context) {
 	verifier, err := slack.NewSecretsVerifier(c.Request.Header, os.Getenv("SIGNATURE_SECRET"))
 	if err != nil {
 		c.String(http.StatusBadRequest, "error initializing signature verifier: %s", err.Error())
@@ -56,7 +62,15 @@ func signatureVerification(c *gin.Context) {
 	c.Next()
 }
 
-func installResp() func(c *gin.Context) {
+func newSlackConnector(c *gin.Context) {
+	s := slackConnector {
+		api: 
+		i: 
+	}
+}
+
+
+func slackInstall() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		_, errExists := c.GetQuery("error")
 		if errExists {

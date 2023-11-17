@@ -1,4 +1,4 @@
-package grab
+package main
 
 import (
 	"context"

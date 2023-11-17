@@ -1,4 +1,4 @@
-package grab
+package main
 
 // Generic types for pages on a customer's wiki. Wiki software is almost
 // certainly too generic for this to be useful, but I guess I can try.

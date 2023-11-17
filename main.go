@@ -1,4 +1,4 @@
-package grab
+package main
 
 import (
 	"log"
@@ -49,6 +49,7 @@ func main() {
 	app.LoadHTMLGlob("templates/*")
 	app.Static("/static", "./static")
 
+	// Slack routes
 	slackGroup := app.Group("/slack")
 	installGroup := slackGroup.Group("/install")
 	// First, the user goes to the form to submit mediawiki creds
@@ -83,18 +84,18 @@ func main() {
 		)
 	})
 	// Then we use them while we set up the DB and do Slack things
-	installGroup.Any("/authorize", installResp())
+	installGroup.Any("/authorize", slackInstall())
 
 	// Serve initial interactions with the bot
 	eventGroup := slackGroup.Group("/event")
-	eventGroup.Use(signatureVerification)
+	eventGroup.Use(slackVerify)
 	//eventGroup.Use(signatureVerification)
 	eventGroup.POST("/handle", eventResp())
 	// eventGroup.POST("/grab", appendResp())
 	// eventGroup.POST("/range", rangeResp())
 
 	interactionGroup := slackGroup.Group("/interaction")
-	interactionGroup.Use(signatureVerification)
+	interactionGroup.Use(slackVerify)
 	interactionGroup.POST("/handle", interactionResp())
 
 	_ = app.Run()

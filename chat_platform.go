@@ -1,4 +1,4 @@
-package grab
+package main
 
 // A message is Grab's way to interpret something that somebody
 // has said. It will be a unifying agent between all platforms that
