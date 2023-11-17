@@ -1,0 +1,41 @@
+version: '3'
+services:
+  postgres:
+    healthcheck:
+      test: pg_isready -U ${DB_USER}
+      interval: 5s 
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - grab
+    image: docker.io/postgres:latest
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER} 
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
+  grab:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - grab
+    ports:
+      - 8080:8080
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET}
+      SIGNATURE_SECRET: ${SIGNATURE_SECRET}
+      POSTGRES_URI: ${POSTGRES_URI}
+
+volumes:
+  postgres_data:
+
+networks:
+  grab:
