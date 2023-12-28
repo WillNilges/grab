@@ -293,24 +293,27 @@ func interactionResp() func(c *gin.Context) {
 
 		if payload.Type == "shortcut" {
 			// Make new dialog components and open a dialog.
-			articleTitle := slack.NewTextInput("ArticleTitle", "Article Title", "Article Title")
-			articleSection := slack.NewTextInput("ArticleSection", "Article Section", "Article Section")
+			// Component-Text
+			articleTitle := slack.NewTextInput("ArticleTitle", "Article Title", "")
+			sectionTitle := slack.NewTextInput("SectionTitle", "Section Title", "")
 
-			// === CLOBBER CHECKBOX ===
-			clobberCheckboxOptionText := slack.NewTextBlockObject("plain_text", "Overwrite existing content", false, false)
-			clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", "By selecting this, any data already present under the provided article/section will be ERASED.", false, false)
-			clobberCheckbox := slack.NewCheckboxGroupsBlockElement("clobber", slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText))
-			clobber := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
+			clobber := slack.DialogInput{
+				Label:       "Checkbox Label",
+				Name:        "checkbox_input",
+				Type:        "select",
+				Optional:    true,
+			}
 
 			// Open a dialog
 			elements := []slack.DialogElement{
 				articleTitle,
-				articleSection,
+				sectionTitle,
 				clobber,
 			}
+
 			dialog := slack.Dialog{
 				CallbackID:  "Callback_ID",
-				Title:       "Dialog title",
+				Title:       "Grab Thread",
 				SubmitLabel: "Submit",
 				Elements:    elements,
 			}
