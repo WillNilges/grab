@@ -205,15 +205,9 @@ func createInteractionBlockMsg() slack.MsgOption {
 	// Define blocks
 
 	// === TEXT BLOCK AT THE TOP OF MESSAGE ===
+	savingMessage := "Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones."
 	messageText := slack.NewSectionBlock(
-		slack.NewTextBlockObject(
-			"mrkdwn",
-			"Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones.",
-			false,
-			false,
-		),
-		nil,
-		nil,
+		slack.NewTextBlockObject("mrkdwn", savingMessage, false, false), nil, nil,
 	)
 
 	// If you change this section, the JSON that selects things out of the Raw State will break.
@@ -279,6 +273,12 @@ func generateModalRequest() slack.ModalViewRequest {
 	closeText := slack.NewTextBlockObject("plain_text", "Cancel", false, false)
 	submitText := slack.NewTextBlockObject("plain_text", "Submit", false, false)
 
+	// === TEXT BLOCK AT THE TOP OF MESSAGE ===
+	savingMessage := "Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones."
+	messageText := slack.NewSectionBlock(
+		slack.NewTextBlockObject("mrkdwn", savingMessage, false, false), nil, nil,
+	)
+
 	// Article Title
 	articleTitleText := slack.NewTextBlockObject("plain_text", "Enter Article Title", false, false)
 	articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
@@ -307,6 +307,7 @@ func generateModalRequest() slack.ModalViewRequest {
 
 	blocks := slack.Blocks{
 		BlockSet: []slack.Block{
+			messageText,
 			articleTitle,
 			sectionTitle,
 			clobberBox,
