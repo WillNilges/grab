@@ -257,8 +257,6 @@ func createInteractionBlockMsg() slack.MsgOption {
 	return blockMsg
 }
 
-
-
 // createOptionBlockObjects - utility function for generating option block objects
 func createOptionBlockObjects(options []string, users bool) []*slack.OptionBlockObject {
 	optionBlockObjects := make([]*slack.OptionBlockObject, 0, len(options))
@@ -277,37 +275,41 @@ func createOptionBlockObjects(options []string, users bool) []*slack.OptionBlock
 
 func generateModalRequest() slack.ModalViewRequest {
 	// Create a ModalViewRequest with a header and two inputs
-	titleText := slack.NewTextBlockObject("plain_text", "My App", false, false)
-	closeText := slack.NewTextBlockObject("plain_text", "Close", false, false)
+	titleText := slack.NewTextBlockObject("plain_text", "Grab a thread", false, false)
+	closeText := slack.NewTextBlockObject("plain_text", "Cancel", false, false)
 	submitText := slack.NewTextBlockObject("plain_text", "Submit", false, false)
 
-	headerText := slack.NewTextBlockObject("mrkdwn", "Please enter your name", false, false)
-	headerSection := slack.NewSectionBlock(headerText, nil, nil)
+	// Article Title
+	articleTitleText := slack.NewTextBlockObject("plain_text", "Enter Article Title", false, false)
+	articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
+	articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "articleTitle")
+	articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
 
-	firstNameText := slack.NewTextBlockObject("plain_text", "First Name", false, false)
-	firstNameHint := slack.NewTextBlockObject("plain_text", "First Name Hint", false, false)
-	firstNamePlaceholder := slack.NewTextBlockObject("plain_text", "Enter your first name", false, false)
-	firstNameElement := slack.NewPlainTextInputBlockElement(firstNamePlaceholder, "firstName")
-	// Notice that blockID is a unique identifier for a block
-	firstName := slack.NewInputBlock("First Name", firstNameText, firstNameHint, firstNameElement)
+	// Section title
+	sectionTitleText := slack.NewTextBlockObject("plain_text", "Enter Section Title", false, false)
+	sectionTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Section Title", false, false)
+	sectionTitleElement := slack.NewPlainTextInputBlockElement(sectionTitlePlaceholder, "sectionTitle")
+	sectionTitle := slack.NewInputBlock("Section Title", sectionTitleText, nil, sectionTitleElement)
 
-	lastNameText := slack.NewTextBlockObject("plain_text", "Last Name", false, false)
-	lastNameHint := slack.NewTextBlockObject("plain_text", "Last Name Hint", false, false)
-	lastNamePlaceholder := slack.NewTextBlockObject("plain_text", "Enter your first name", false, false)
-	lastNameElement := slack.NewPlainTextInputBlockElement(lastNamePlaceholder, "lastName")
-	lastName := slack.NewInputBlock("Last Name", lastNameText, lastNameHint, lastNameElement)
-	
-	checkboxTxt := slack.NewTextBlockObject(slack.PlainTextType, "Checkbox", false, false)
-	checkboxOptions := createOptionBlockObjects([]string{"option 1", "option 2", "option 3"}, false)
-	checkboxOptionsBlock := slack.NewCheckboxGroupsBlockElement("chkbox", checkboxOptions...)
-	checkboxBlock := slack.NewInputBlock("chkbox", checkboxTxt, nil, checkboxOptionsBlock)
+	// The checkbox. Why I need like 6 fucking lines for this is beyond me.
+	clobberCheckboxOptionText := slack.NewTextBlockObject(
+		"plain_text", "Overwrite existing content", false, false,
+	)
+	clobberWarning := "By selecting this, any data already present under the provided article/section will be ERASED."
+	clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", clobberWarning, false, false)
+	clobberCheckbox := slack.NewCheckboxGroupsBlockElement(
+		"clobber",
+		slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText),
+	)
+	clobberBox := slack.NewInputBlock(
+		"Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox,
+	)
 
 	blocks := slack.Blocks{
 		BlockSet: []slack.Block{
-			headerSection,
-			firstName,
-			lastName,
-			checkboxBlock,
+			articleTitle,
+			sectionTitle,
+			clobberBox,
 		},
 	}
 
@@ -337,7 +339,6 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 		}
 		slackClient := slack.New(instance.SlackAccessToken)
-
 
 		w, err := mwclient.New(instance.MediaWikiURL, "Grab")
 		if err != nil {
@@ -378,7 +379,7 @@ func interactionResp() func(c *gin.Context) {
 					c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
 					return
 				}
-				
+
 				blockMsg := createInteractionBlockMsg()
 
 				_, err = slackClient.PostEphemeral(
