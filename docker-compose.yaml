@@ -2,18 +2,20 @@ version: '3'
 services:
   postgres:
     healthcheck:
-      test: pg_isready -U ${DB_USER}
+      test: pg_isready -U ${POSTGRES_USER}
       interval: 5s 
       timeout: 3s
       retries: 3
       start_period: 5s
+    ports:
+      - 5432:5432
     networks:
       - grab
     image: docker.io/postgres:latest
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER} 
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_NAME}
+      POSTGRES_USER: ${POSTGRES_USER} 
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data/
 

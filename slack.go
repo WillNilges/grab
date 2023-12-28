@@ -181,6 +181,82 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 	return nil
 }
 
+/*
+type GrabCommand struct {
+	ChatClient ChatClient
+	WikiClient WikiClient
+}
+
+type Thread struct {
+	Title string
+	Text string
+}
+
+type ChatClient interface {
+	processThread() Thread
+}
+
+type WikiClient interface {
+	publishThread(thread Thread)
+}
+*/
+
+func createInteractionBlockMsg() slack.MsgOption {
+	// Define blocks
+
+	// === TEXT BLOCK AT THE TOP OF MESSAGE ===
+	messageText := slack.NewSectionBlock(
+		slack.NewTextBlockObject(
+			"mrkdwn",
+			"Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones.",
+			false,
+			false,
+		),
+		nil,
+		nil,
+	)
+
+	// If you change this section, the JSON that selects things out of the Raw State will break.
+	// === ARTICLE TITLE INPUT ===
+	articleTitleText := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
+	articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, Provide a title for this article", false, false)
+	articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "article_title")
+	// Notice that blockID is a unique identifier for a block
+	articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
+
+	// === ARTICLE SECTION INPUT ===
+	articleSectionText := slack.NewTextBlockObject("plain_text", "Article Section", false, false)
+	articleSectionPlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, place it under a section", false, false)
+	articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_section")
+	// Notice that blockID is a unique identifier for a block
+	articleSection := slack.NewInputBlock("Article Section", articleSectionText, nil, articleSectionElement)
+
+	// === CLOBBER CHECKBOX ===
+	clobberCheckboxOptionText := slack.NewTextBlockObject("plain_text", "Overwrite existing content", false, false)
+	clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", "By selecting this, any data already present under the provided article/section will be ERASED.", false, false)
+	clobberCheckbox := slack.NewCheckboxGroupsBlockElement("clobber", slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText))
+	clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
+
+	// === CONFIRM BUTTON ===
+	confirmButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptConfirm, "CONFIRM", slack.NewTextBlockObject("plain_text", "CONFIRM", false, false))
+	confirmButton.Style = "primary"
+
+	// === CANCEL BUTTON ===
+	cancelButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptCancel, "CANCEL", slack.NewTextBlockObject("plain_text", "CANCEL", false, false))
+
+	buttons := slack.NewActionBlock("", confirmButton, cancelButton)
+
+	blockMsg := slack.MsgOptionBlocks(
+		messageText,
+		articleTitle,
+		articleSection,
+		clobberBox,
+		buttons,
+	)
+
+	return blockMsg
+}
+
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var payload slack.InteractionCallback
@@ -199,20 +275,23 @@ func interactionResp() func(c *gin.Context) {
 		}
 		slackClient := slack.New(instance.SlackAccessToken)
 
+
 		w, err := mwclient.New(instance.MediaWikiURL, "Grab")
 		if err != nil {
-			log.Println(err)
+			log.Printf("Could not create MediaWiki client: %s\n", err)
 			c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
 			return
 		}
 		err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
 		if err != nil {
-			log.Println(err)
+			log.Printf("Could not login to MediaWiki: %s\n", err)
 			c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
 			return
 		}
 
-		if payload.Type == "message_action" {
+		fmt.Printf("Type is %s\n", payload.Type)
+
+		if payload.Type == "message_action" || payload.Type == "shortcut" {
 			if payload.CallbackID == GrabInteractionAppendThreadTranscript {
 				// First of all, are we in a thread?
 				if payload.Message.ThreadTimestamp == "" {
@@ -230,58 +309,8 @@ func interactionResp() func(c *gin.Context) {
 					c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
 					return
 				}
-
-				// Define blocks
-
-				// === TEXT BLOCK AT THE TOP OF MESSAGE ===
-				messageText := slack.NewSectionBlock(
-					slack.NewTextBlockObject(
-						"mrkdwn",
-						"Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones.",
-						false,
-						false,
-					),
-					nil,
-					nil,
-				)
-
-				// If you change this section, the JSON that selects things out of the Raw State will break.
-				// === ARTICLE TITLE INPUT ===
-				articleTitleText := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
-				articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, Provide a title for this article", false, false)
-				articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "article_title")
-				// Notice that blockID is a unique identifier for a block
-				articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
-
-				// === ARTICLE SECTION INPUT ===
-				articleSectionText := slack.NewTextBlockObject("plain_text", "Article Section", false, false)
-				articleSectionPlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, place it under a section", false, false)
-				articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_section")
-				// Notice that blockID is a unique identifier for a block
-				articleSection := slack.NewInputBlock("Article Section", articleSectionText, nil, articleSectionElement)
-
-				// === CLOBBER CHECKBOX ===
-				clobberCheckboxOptionText := slack.NewTextBlockObject("plain_text", "Overwrite existing content", false, false)
-				clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", "By selecting this, any data already present under the provided article/section will be ERASED.", false, false)
-				clobberCheckbox := slack.NewCheckboxGroupsBlockElement("clobber", slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText))
-				clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
-
-				// === CONFIRM BUTTON ===
-				confirmButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptConfirm, "CONFIRM", slack.NewTextBlockObject("plain_text", "CONFIRM", false, false))
-				confirmButton.Style = "primary"
-
-				// === CANCEL BUTTON ===
-				cancelButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptCancel, "CANCEL", slack.NewTextBlockObject("plain_text", "CANCEL", false, false))
-
-				buttons := slack.NewActionBlock("", confirmButton, cancelButton)
-
-				blockMsg := slack.MsgOptionBlocks(
-					messageText,
-					articleTitle,
-					articleSection,
-					clobberBox,
-					buttons,
-				)
+				
+				blockMsg := createInteractionBlockMsg()
 
 				_, err = slackClient.PostEphemeral(
 					payload.Channel.ID,
