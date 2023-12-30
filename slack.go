@@ -278,19 +278,6 @@ func interactionResp() func(c *gin.Context) {
 		}
 		slackClient := slack.New(instance.SlackAccessToken)
 
-		w, err := mwclient.New(instance.MediaWikiURL, "Grab")
-		if err != nil {
-			log.Println(err)
-			c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-			return
-		}
-		err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
-		if err != nil {
-			log.Println(err)
-			c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-			return
-		}
-
 		if payload.Type != "block_actions" {
 			c.String(http.StatusBadRequest, "Invalid payload type: %s", payload.Type)
 			return
@@ -298,6 +285,19 @@ func interactionResp() func(c *gin.Context) {
 
 		firstBlockAction := payload.ActionCallback.BlockActions[0]
 		if firstBlockAction.ActionID == AppendThreadConfirm {
+			w, err := mwclient.New(instance.MediaWikiURL, "Grab")
+			if err != nil {
+				log.Println(err)
+				c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+				return
+			}
+			err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
+			if err != nil {
+				log.Println(err)
+				c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+				return
+			}
+
 			v, err := jason.NewObjectFromBytes(payload.RawState)
 			if err != nil {
 				log.Println(err)
