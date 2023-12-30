@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -184,6 +185,7 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 		)
 		if err != nil {
 			log.Printf("failed posting message: %v\n", err)
+			return err
 		}
 		//c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
 		return nil
@@ -260,8 +262,47 @@ func createBlockMessage() slack.MsgOption {
 	return blockMsg
 }
 
+func parseSlackForm(p []byte) (articleTitle string, articleSection string, clobber bool, err error) {
+	v, err := jason.NewObjectFromBytes(p)
+	if err != nil {
+		log.Println("error saving to wiki: ", err)
+		//c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+		return "", "", false, err
+	}
+
+	// Get user-provided article title
+	articleTitle, err = v.GetString("values", "Article Title", "article_title", "value")
+	if err != nil {
+		log.Println("Couldn't parse article title: ", err)
+		return "", "", false, err
+	}
+
+	// Get user-provided article section
+	articleSection, err = v.GetString("values", "Article Section", "article_section", "value")
+	if err != nil {
+		log.Println("Couldn't parse section title: ", err)
+		return "", "", false, err
+	}
+
+	// Check if we should clobber or not
+	clobber = false
+	clobberBox, err := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
+	if err != nil {
+		log.Println("Couldn't parse clobber checkbox array: ", err)
+	} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
+		clobberConfirmed, err := clobberBox[0].GetString("value")
+		if err != nil {
+			log.Println("Couldn't parse clobber checkbox value: ", err)
+		}
+		clobber = strings.Contains("confirmed", clobberConfirmed)
+	}
+
+	return articleTitle, articleSection, clobber, nil
+}
+
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// Get raw HTTP request into useful Slack object
 		var payload slack.InteractionCallback
 		err := json.Unmarshal([]byte(c.Request.FormValue("payload")), &payload)
 		if err != nil {
@@ -269,22 +310,31 @@ func interactionResp() func(c *gin.Context) {
 			return
 		}
 
-		// Retrieve credentials to log into Slack and MediaWiki
+		// If it's not a block action, we don't care.
+		if payload.Type != "block_actions" {
+			c.String(http.StatusBadRequest, "Invalid payload type: %s", payload.Type)
+			return
+		}
+
+		// Pull credentials out of DB
 		var instance Instance
 		instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
 		if err != nil {
 			log.Println(err)
 			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 		}
+
+		// Log into Slack (we know we're gonna need that)
 		slackClient := slack.New(instance.SlackAccessToken)
 
-		if payload.Type != "block_actions" {
-			c.String(http.StatusBadRequest, "Invalid payload type: %s", payload.Type)
-			return
-		}
-
+		// It must be one of two things:
+		// User went through with a Grab
+		// User cancelled a Grab
 		firstBlockAction := payload.ActionCallback.BlockActions[0]
 		if firstBlockAction.ActionID == AppendThreadConfirm {
+
+			// Get MediaWiki credentials
+			// TODO: Decouple
 			w, err := mwclient.New(instance.MediaWikiURL, "Grab")
 			if err != nil {
 				log.Println(err)
@@ -298,43 +348,15 @@ func interactionResp() func(c *gin.Context) {
 				return
 			}
 
-			v, err := jason.NewObjectFromBytes(payload.RawState)
-			if err != nil {
-				log.Println(err)
-				c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
-				return
-			}
-
-			// Get user-provided article title
-			articleTitle, err := v.GetString("values", "Article Title", "article_title", "value")
-			if err != nil {
-				log.Println("Couldn't parse article title: ", err)
-			}
-
-			// Get user-provided article section
-			articleSection, err := v.GetString("values", "Article Section", "article_section", "value")
-			if err != nil {
-				log.Println("Couldn't parse section title: ", err)
-			}
-
-			// Check if we should clobber or not
-			clobber := false
-			clobberBox, err := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
-			if err != nil {
-				log.Println("Couldn't parse clobber checkbox array: ", err)
-			} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
-				clobberConfirmed, err := clobberBox[0].GetString("value")
-				if err != nil {
-					log.Println("Couldn't parse clobber checkbox value: ", err)
-				}
-				clobber = strings.Contains("confirmed", clobberConfirmed)
-			}
+			// Parse form values
+			articleTitle, articleSection, clobber, err := parseSlackForm(payload.RawState)
 
 			// Ack so we don't die when eating large messages
 			log.Println("Command received. Saving thread...")
 			c.String(http.StatusOK, "Command received. Saving thread...")
 
 			// OK, now actually post it to the wiki.
+			// TODO: Decouple
 			var conversation []slack.Message
 			var transcript string
 			conversation, err = getThreadConversation(slackClient, payload.Channel.ID, payload.Container.ThreadTs)
@@ -405,6 +427,101 @@ func interactionResp() func(c *gin.Context) {
 		}
 
 	}
+}
+
+func (s *SlackServicer) slackTSToTime(slackTimestamp string) (slackTime time.Time) {
+	// Convert the Slack timestamp to a Unix timestamp (float64)
+	slackUnixTimestamp, err := strconv.ParseFloat(strings.Split(slackTimestamp, ".")[0], 64)
+	if err != nil {
+		fmt.Println("Error parsing Slack timestamp:", err)
+		return
+	}
+
+	// Create a time.Time object from the Unix timestamp (assuming UTC time zone)
+	slackTime = time.Unix(int64(slackUnixTimestamp), 0)
+	return slackTime
+}
+
+type SlackServicer struct {
+	api *slack.Client
+}
+
+func (s *SlackServicer) getThread(channelID string, threadTs string, title string) (thread Thread, err error) {
+	// Get the conversation history
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
+	}
+	conversation, _, _, err := s.api.GetConversationReplies(&params)
+	if err != nil {
+		return Thread{}, err
+	}
+
+	// Get the bot's userID
+	authTestResponse, err := s.api.AuthTest()
+	if err != nil {
+		log.Fatalf("Error calling AuthTest: %s", err)
+	}
+
+	// Get title from the thread if it doesn't exist
+	if len(title) == 0 {
+		thread.Title = conversation[0].Text
+	} else {
+		thread.Title = title
+	}
+
+	// Truncate him
+	if len(thread.Title) > 20 {
+		thread.Title = thread.Title[0:20] + "..."
+	}
+
+	// The ThreadTS is when this party started 
+	thread.Timestamp = s.slackTSToTime(threadTs)
+
+	var conversationUsers map[string]string
+	for _, message := range conversation {
+		// Don't include messages from Grab or that mention Grab.
+		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+			continue
+		}
+
+		// Build a Message. Convert Slack Message into our format 
+		m := Message{}
+
+		// Translate the user id to a user name. Cache them so we don't have
+		// to hit the API every time
+		var msgUser *slack.User
+		if len(conversationUsers[message.User]) == 0 {
+			msgUser, err = s.api.GetUserInfo(message.User)
+			if err != nil {
+				log.Println(err)
+			} else {
+				conversationUsers[message.User] = msgUser.Name
+			}
+		}
+
+		m.Timestamp = s.slackTSToTime(message.Timestamp)
+		m.Author = conversationUsers[message.User]
+		m.Text = message.Text
+
+		// Check for attachements
+		for _, attachment := range message.Attachments {
+			// Dead-simple way to grab text attachments. I guess Grab Messages
+			// will be Markdown.
+			if attachment.Text != "" {
+				m.Text += "\n\n```" + attachment.Text + "```"
+			}
+		}
+
+		// Check for files
+		for _, file := range message.Files { 
+			m.Files = append(m.Files, file.URLPrivateDownload)
+		}
+
+		thread.Messages = append(thread.Messages, m)
+	}
+
+	return thread, nil
 }
 
 func getThreadConversation(api *slack.Client, channelID string, threadTs string) (conversation []slack.Message, err error) {
