@@ -159,7 +159,9 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
-// TODO: Do we really need this?
+// FIXME: Make him return correctly
+// TODO: Somehow track how many requests were made per minute or whatever, don't
+// duplicate requests in the same thread
 func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (err error) {
 	// Retrieve credentials to log into Slack and MediaWiki
 	var instance Instance
@@ -169,14 +171,36 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 	}
 	slackClient := slack.New(instance.SlackAccessToken)
 
+	// First of all, are we in a thread?
+	if am.ThreadTimeStamp == "" {
+		_, err = slackClient.PostEphemeral(
+			am.Channel,
+			am.User,
+			slack.MsgOptionTS(am.ThreadTimeStamp),
+			slack.MsgOptionText(
+				"Sorry, I only work inside threads!",
+				false,
+			),
+		)
+		if err != nil {
+			log.Printf("failed posting message: %v\n", err)
+		}
+		//c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
+		return nil
+	}	
+
+	blockMsg := createBlockMessage()
+
 	_, err = slackClient.PostEphemeral(
 		am.Channel,
 		am.User,
 		slack.MsgOptionTS(am.ThreadTimeStamp),
-		slack.MsgOptionText("Hello, I'm Grab! A bot that can transcribe Slack threads to your knowledge base.\n\nTo use me, select my shortcut from the dropdown on a threaded message.", false),
+		blockMsg,
 	)
 	if err != nil {
-		return err
+		log.Println("Error posting ephemeral message: ", err)
+		//c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
+		return nil
 	}
 	return nil
 }
