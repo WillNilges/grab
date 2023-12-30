@@ -25,10 +25,10 @@ type GrabBlockActionIDs string
 
 const (
 	// Callback ID
-	GrabInteractionAppendThreadTranscript = "append_thread_transcript"
+	AppendThread = "append_thread_transcript"
 	// Block Action IDs for that Callback ID
-	GrabInteractionAppendThreadTranscriptConfirm = "append_thread_transcript_confirm"
-	GrabInteractionAppendThreadTranscriptCancel  = "append_thread_transcript_cancel"
+	AppendThreadConfirm = "append_thread_transcript_confirm"
+	AppendThreadCancel  = "append_thread_transcript_cancel"
 )
 
 func signatureVerification(c *gin.Context) {
@@ -159,7 +159,7 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
-// FIXME: Make him return correctly
+// FIXME: Make him return error codes and what-have-you
 // TODO: Somehow track how many requests were made per minute or whatever, don't
 // duplicate requests in the same thread
 func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (err error) {
@@ -187,7 +187,7 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 		}
 		//c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
 		return nil
-	}	
+	}
 
 	blockMsg := createBlockMessage()
 
@@ -241,11 +241,11 @@ func createBlockMessage() slack.MsgOption {
 	clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
 
 	// === CONFIRM BUTTON ===
-	confirmButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptConfirm, "CONFIRM", slack.NewTextBlockObject("plain_text", "CONFIRM", false, false))
+	confirmButton := slack.NewButtonBlockElement(AppendThreadConfirm, "CONFIRM", slack.NewTextBlockObject("plain_text", "CONFIRM", false, false))
 	confirmButton.Style = "primary"
 
 	// === CANCEL BUTTON ===
-	cancelButton := slack.NewButtonBlockElement(GrabInteractionAppendThreadTranscriptCancel, "CANCEL", slack.NewTextBlockObject("plain_text", "CANCEL", false, false))
+	cancelButton := slack.NewButtonBlockElement(AppendThreadCancel, "CANCEL", slack.NewTextBlockObject("plain_text", "CANCEL", false, false))
 
 	buttons := slack.NewActionBlock("", confirmButton, cancelButton)
 
@@ -291,148 +291,119 @@ func interactionResp() func(c *gin.Context) {
 			return
 		}
 
-		if payload.Type == "message_action" {
-			if payload.CallbackID == GrabInteractionAppendThreadTranscript {
-				// First of all, are we in a thread?
-				if payload.Message.ThreadTimestamp == "" {
-					_, err = slackClient.PostEphemeral(
-						payload.Channel.ID,
-						payload.User.ID,
-						slack.MsgOptionText(
-							"Sorry, I only work inside threads!",
-							false,
-						),
-					)
-					if err != nil {
-						log.Printf("failed posting message: %v\n", err)
-					}
-					c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
-					return
-				}	
+		if payload.Type != "block_actions" {
+			c.String(http.StatusBadRequest, "Invalid payload type: %s", payload.Type)
+			return
+		}
 
-				blockMsg := createBlockMessage()
-
-				_, err = slackClient.PostEphemeral(
-					payload.Channel.ID,
-					payload.User.ID,
-					slack.MsgOptionTS(payload.Message.ThreadTimestamp),
-					blockMsg,
-				)
-				if err != nil {
-					log.Println("Error posting ephemeral message: ", err)
-					c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
-					return
-				}
+		firstBlockAction := payload.ActionCallback.BlockActions[0]
+		if firstBlockAction.ActionID == AppendThreadConfirm {
+			v, err := jason.NewObjectFromBytes(payload.RawState)
+			if err != nil {
+				log.Println(err)
+				c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+				return
 			}
-		} else if payload.Type == "block_actions" {
-			firstBlockAction := payload.ActionCallback.BlockActions[0]
-			if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptConfirm {
-				v, err := jason.NewObjectFromBytes(payload.RawState)
+
+			// Get user-provided article title
+			articleTitle, err := v.GetString("values", "Article Title", "article_title", "value")
+			if err != nil {
+				log.Println("Couldn't parse article title: ", err)
+			}
+
+			// Get user-provided article section
+			articleSection, err := v.GetString("values", "Article Section", "article_section", "value")
+			if err != nil {
+				log.Println("Couldn't parse section title: ", err)
+			}
+
+			// Check if we should clobber or not
+			clobber := false
+			clobberBox, err := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
+			if err != nil {
+				log.Println("Couldn't parse clobber checkbox array: ", err)
+			} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
+				clobberConfirmed, err := clobberBox[0].GetString("value")
 				if err != nil {
-					log.Println(err)
-					c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
-					return
+					log.Println("Couldn't parse clobber checkbox value: ", err)
 				}
+				clobber = strings.Contains("confirmed", clobberConfirmed)
+			}
 
-				// Get user-provided article title
-				articleTitle, err := v.GetString("values", "Article Title", "article_title", "value")
-				if err != nil {
-					log.Println("Couldn't parse article title: ", err)
-				}
+			// Ack so we don't die when eating large messages
+			log.Println("Command received. Saving thread...")
+			c.String(http.StatusOK, "Command received. Saving thread...")
 
-				// Get user-provided article section
-				articleSection, err := v.GetString("values", "Article Section", "article_section", "value")
-				if err != nil {
-					log.Println("Couldn't parse section title: ", err)
-				}
+			// OK, now actually post it to the wiki.
+			var conversation []slack.Message
+			var transcript string
+			conversation, err = getThreadConversation(slackClient, payload.Channel.ID, payload.Container.ThreadTs)
+			if err != nil {
+				log.Println("Failed to get thread conversation: ", err)
+				c.String(http.StatusInternalServerError, "Failed to get thread conversation: %s", err.Error())
+				return
+			}
 
-				// Check if we should clobber or not
-				clobber := false
-				clobberBox, err := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
-				if err != nil {
-					log.Println("Couldn't parse clobber checkbox array: ", err)
-				} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
-					clobberConfirmed, err := clobberBox[0].GetString("value")
-					if err != nil {
-						log.Println("Couldn't parse clobber checkbox value: ", err)
-					}
-					clobber = strings.Contains("confirmed", clobberConfirmed)
-				}
+			if articleTitle == "" {
+				// Get title if not provided
+				articleTitle, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
+			} else {
+				_, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
+			}
 
-				// Ack so we don't die when eating large messages
-				log.Println("Command received. Saving thread...")
-				c.String(http.StatusOK, "Command received. Saving thread...")
+			if err != nil {
+				log.Println("Error generating transcript: ", err)
+				c.String(http.StatusInternalServerError, "Error generating transcript: %s", err.Error())
+				return
+			}
 
-				// OK, now actually post it to the wiki.
-				var conversation []slack.Message
-				var transcript string
-				conversation, err = getThreadConversation(slackClient, payload.Channel.ID, payload.Container.ThreadTs)
-				if err != nil {
-					log.Println("Failed to get thread conversation: ", err)
-					c.String(http.StatusInternalServerError, "Failed to get thread conversation: %s", err.Error())
-					return
-				}
+			log.Println("Thread downloaded. Publishing to wiki...")
+			c.String(http.StatusOK, "Thread downloaded. Publishing to wiki...")
 
-				if articleTitle == "" {
-					// Get title if not provided
-					articleTitle, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
-				} else {
-					_, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
-				}
+			// Publish the content to the wiki. If the article doesn't exist,
+			// then create it. If the section doesn't exist, then create it.
+			err = publishToWiki(w, clobber, articleTitle, articleSection, transcript)
+			if err != nil {
+				log.Println("Error publishing to wiki: ", err)
+				c.String(http.StatusInternalServerError, "Error publishing to wiki: %s", err.Error())
+				return
+			}
 
-				if err != nil {
-					log.Println("Error generating transcript: ", err)
-					c.String(http.StatusInternalServerError, "Error generating transcript: %s", err.Error())
-					return
-				}
+			// Update the ephemeral message
+			newArticleURL, _, err := getArticleURL(w, articleTitle)
+			if err != nil {
+				log.Println("Could not get article URL: ", err)
+				c.String(http.StatusInternalServerError, "Error getting article URL: %s", err.Error())
+				return
+			}
+			responseData := fmt.Sprintf(
+				`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
+				payload.Message.ThreadTimestamp,
+				newArticleURL,
+			)
+			reader := strings.NewReader(responseData)
+			_, err = http.Post(payload.ResponseURL, "application/json", reader)
 
-				log.Println("Thread downloaded. Publishing to wiki...")
-				c.String(http.StatusOK, "Thread downloaded. Publishing to wiki...")
+			if err != nil {
+				log.Printf("Failed updating message: %v", err)
+			}
 
-				// Publish the content to the wiki. If the article doesn't exist,
-				// then create it. If the section doesn't exist, then create it.
-				err = publishToWiki(w, clobber, articleTitle, articleSection, transcript)
-				if err != nil {
-					log.Println("Error publishing to wiki: ", err)
-					c.String(http.StatusInternalServerError, "Error publishing to wiki: %s", err.Error())
-					return
-				}
+		} else if firstBlockAction.ActionID == AppendThreadCancel {
+			// Update the ephemeral message
+			responseData := fmt.Sprintf(
+				`{"replace_original": "true", "thread_ts": "%s", "text": "Grab request cancelled."}`,
+				payload.Container.ThreadTs,
+			)
+			reader := strings.NewReader(responseData)
+			_, err := http.Post(payload.ResponseURL, "application/json", reader)
 
-				// Update the ephemeral message
-				newArticleURL, _, err := getArticleURL(w, articleTitle)
-				if err != nil {
-					log.Println("Could not get article URL: ", err)
-					c.String(http.StatusInternalServerError, "Error getting article URL: %s", err.Error())
-					return
-				}
-				responseData := fmt.Sprintf(
-					`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
-					payload.Message.ThreadTimestamp,
-					newArticleURL,
-				)
-				reader := strings.NewReader(responseData)
-				_, err = http.Post(payload.ResponseURL, "application/json", reader)
-
-				if err != nil {
-					log.Printf("Failed updating message: %v", err)
-				}
-
-			} else if firstBlockAction.ActionID == GrabInteractionAppendThreadTranscriptCancel {
-				// Update the ephemeral message
-				responseData := fmt.Sprintf(
-					`{"replace_original": "true", "thread_ts": "%s", "text": "Grab request cancelled."}`,
-					payload.Container.ThreadTs,
-				)
-				reader := strings.NewReader(responseData)
-				_, err := http.Post(payload.ResponseURL, "application/json", reader)
-
-				if err != nil {
-					log.Printf("Failed updating message: %v", err)
-					c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
-					return
-				}
+			if err != nil {
+				log.Printf("Failed updating message: %v", err)
+				c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
+				return
 			}
 		}
+
 	}
 }
 
