@@ -365,7 +365,8 @@ func interactionResp() func(c *gin.Context) {
 			// Figure out what kind of Wiki this org has
 			var w WikiBridge
 			if len(instance.MediaWikiURL) > 0 {
-				w, err = NewMediaWikiBridge(instance)
+				wiki, err := NewMediaWikiBridge(instance)
+				w = &wiki // Forgive me father for I have sinned
 				if err != nil {
 					log.Printf("error logging into mediawiki: %s\n", err.Error())
 					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
@@ -506,7 +507,7 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 	// The ThreadTS is when this party started 
 	thread.Timestamp = s.slackTSToTime(threadTs)
 
-	var conversationUsers map[string]string
+	conversationUsers := map[string]string{}
 	for _, message := range conversation {
 		// Don't include messages from Grab or that mention Grab.
 		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {

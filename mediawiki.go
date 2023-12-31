@@ -22,14 +22,14 @@ type MediaWikiBridge struct {
 	api *mwclient.Client
 }
 
-func NewMediaWikiBridge(instance Instance) (wiki *MediaWikiBridge, err error) {
+func NewMediaWikiBridge(instance Instance) (wiki MediaWikiBridge, err error) {
 	w, err := mwclient.New(instance.MediaWikiURL, "Grab")
 	if err != nil {
-		return nil, err
+		return MediaWikiBridge{}, err
 	}
 	err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
 	if err != nil {
-		return nil, err
+		return MediaWikiBridge{}, err
 	}
 
 	wiki.api = w
