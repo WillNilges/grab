@@ -44,7 +44,7 @@ func init() {
 	}
 
 	// -------   files   --------
-	os.Mkdir("/tmp/grab/", os.FileMode(0666))	
+	os.Mkdir("/tmp/grab/", os.FileMode(0777))	
 }
 
 func main() {

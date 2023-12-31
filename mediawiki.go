@@ -62,6 +62,7 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 				continue
 			}
 			transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+			defer os.Remove(f)
 		}
 	}
 

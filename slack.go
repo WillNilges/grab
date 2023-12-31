@@ -558,7 +558,6 @@ func (s *SlackBridge) getFile(file slack.File) (path string, err error) {
 	path = fmt.Sprintf("/tmp/grab/%s", basename)
 	var tempFile *os.File
 	tempFile, err = os.Create(path)
-	defer os.Remove(path)
 	if err != nil {
 		log.Println("Error creating output file:", err)
 		return
