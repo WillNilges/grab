@@ -49,7 +49,6 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 	transcript += "Transcript generated at " + currentTime + ".\n\n"
 	transcript += "Conversation begins at " + transcriptBegin + ".\n\n"
 
-
 	for _, m := range thread.Messages {
 		transcript += m.Author + ": " + m.Text + "\n\n"
 
@@ -86,10 +85,9 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 	return transcript
 }
 
-
 // Helper function for putting things on the wiki. Can easily control how content
 // gets published by setting or removing variables
-//func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle string, convo string) (err error) {
+// func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle string, convo string) (err error) {
 func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript string, clobber bool) (url string, err error) {
 	parameters := map[string]string{
 		"action":     "edit",
@@ -121,7 +119,7 @@ func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript
 
 			parameters["section"] = "new"
 			parameters["sectiontitle"] = section
-			parameters["text"] = transcript 
+			parameters["text"] = transcript
 		} else if sectionExists /* && append */ {
 			index, err := w.findSectionId(title, section)
 			if err != nil {

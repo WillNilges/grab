@@ -164,7 +164,6 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
-
 type SlackBridge struct {
 	api *slack.Client
 }
@@ -205,33 +204,33 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 	}
 
 	/*
-	// Clean up old Grab messages
-	// FIXME: This doesn't work, probably due to ephemeral messages.
-	// This brings up a problem with having to ping Grab. Garbage will build
-	// up in the thread (@Grab's and messages from Grab for the user)
-	s := NewSlackBridge(instance)
-	conversation, err := s.getConversationReplies(am.Channel, am.ThreadTimeStamp)
-	if err != nil {
-		log.Println("Could not get conversation: ", err)
-	}
-
-	// Get the bot's userID
-	authTestResponse, err := s.api.AuthTest()
-	if err != nil {
-		log.Fatalf("Error calling AuthTest: %s", err)
-	}
-
-	for _, message := range conversation {
-		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
-			continue
-		}
-
-		_, _, err := s.api.DeleteMessage(am.Channel, message.Timestamp)
+		// Clean up old Grab messages
+		// FIXME: This doesn't work, probably due to ephemeral messages.
+		// This brings up a problem with having to ping Grab. Garbage will build
+		// up in the thread (@Grab's and messages from Grab for the user)
+		s := NewSlackBridge(instance)
+		conversation, err := s.getConversationReplies(am.Channel, am.ThreadTimeStamp)
 		if err != nil {
-			log.Println("Could not delete message from Grab: ", err)
+			log.Println("Could not get conversation: ", err)
 		}
-	}
-	// </Clean up old Grab messages>
+
+		// Get the bot's userID
+		authTestResponse, err := s.api.AuthTest()
+		if err != nil {
+			log.Fatalf("Error calling AuthTest: %s", err)
+		}
+
+		for _, message := range conversation {
+			if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+				continue
+			}
+
+			_, _, err := s.api.DeleteMessage(am.Channel, message.Timestamp)
+			if err != nil {
+				log.Println("Could not delete message from Grab: ", err)
+			}
+		}
+		// </Clean up old Grab messages>
 	*/
 
 	blockMsg := createBlockMessage()
@@ -244,7 +243,7 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 	)
 	if err != nil {
 		log.Println("Error posting ephemeral message: ", err)
-		return http.StatusInternalServerError, err 
+		return http.StatusInternalServerError, err
 	}
 	return http.StatusOK, nil
 }
@@ -406,7 +405,6 @@ func interactionResp() func(c *gin.Context) {
 			transcript := w.generateTranscript(thread)
 			url, err := w.uploadArticle(articleTitle, articleSection, transcript, clobber)
 
-
 			// Update the ephemeral message
 			responseData := fmt.Sprintf(
 				`{"replace_original": "true", "thread_ts": "%s", "text": "Article saved! You can find it posted at: %s"}`,
@@ -421,65 +419,6 @@ func interactionResp() func(c *gin.Context) {
 				c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
 				return
 			}
-
-// ------
-			/*
-			// OK, now actually post it to the wiki.
-			// TODO: Decouple
-			var conversation []slack.Message
-			var transcript string
-			conversation, err = getThreadConversation(slackClient, payload.Channel.ID, payload.Container.ThreadTs)
-			if err != nil {
-				log.Println("Failed to get thread conversation: ", err)
-				c.String(http.StatusInternalServerError, "Failed to get thread conversation: %s", err.Error())
-				return
-			}
-
-			if articleTitle == "" {
-				// Get title if not provided
-				articleTitle, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
-			} else {
-				_, transcript, err = generateTranscript(&instance, slackClient, w, conversation)
-			}
-
-			if err != nil {
-				log.Println("Error generating transcript: ", err)
-				c.String(http.StatusInternalServerError, "Error generating transcript: %s", err.Error())
-				return
-			}
-
-			log.Println("Thread downloaded. Publishing to wiki...")
-			c.String(http.StatusOK, "Thread downloaded. Publishing to wiki...")
-
-			// Publish the content to the wiki. If the article doesn't exist,
-			// then create it. If the section doesn't exist, then create it.
-			err = publishToWiki(w, clobber, articleTitle, articleSection, transcript)
-			if err != nil {
-				log.Println("Error publishing to wiki: ", err)
-				c.String(http.StatusInternalServerError, "Error publishing to wiki: %s", err.Error())
-				return
-			}
-
-			// Update the ephemeral message
-			newArticleURL, _, err := getArticleURL(w, articleTitle)
-			if err != nil {
-				log.Println("Could not get article URL: ", err)
-				c.String(http.StatusInternalServerError, "Error getting article URL: %s", err.Error())
-				return
-			}
-			responseData := fmt.Sprintf(
-				`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
-				payload.Message.ThreadTimestamp,
-				newArticleURL,
-			)
-			reader := strings.NewReader(responseData)
-			_, err = http.Post(payload.ResponseURL, "application/json", reader)
-
-			if err != nil {
-				log.Printf("Failed updating message: %v", err)
-			}
-*/
-
 		} else if firstBlockAction.ActionID == AppendThreadCancel {
 			// Update the ephemeral message
 			responseData := fmt.Sprintf(
@@ -526,7 +465,7 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 		log.Fatalf("Error calling AuthTest: %s", err)
 	}
 
-	// The ThreadTS is when this party started 
+	// The ThreadTS is when this party started
 	thread.Timestamp = s.slackTSToTime(threadTs)
 
 	conversationUsers := map[string]string{}
@@ -536,7 +475,7 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 			continue
 		}
 
-		// Build a Message. Convert Slack Message into our format 
+		// Build a Message. Convert Slack Message into our format
 		m := Message{}
 
 		// Translate the user id to a user name. Cache them so we don't have
@@ -565,7 +504,7 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 		}
 
 		// Check for files
-		for _, file := range message.Files { 
+		for _, file := range message.Files {
 			path, err := s.getFile(file)
 			if err != nil {
 				log.Println("Could not save file: ", err)
@@ -622,111 +561,3 @@ func getThreadConversation(api *slack.Client, channelID string, threadTs string)
 	}
 	return conversation, nil
 }
-
-// Takes in a slack thread and...
-// Gets peoples' CSH usernames and makes them into page links (TODO)
-// Removes any mention of Grab
-// Adds human readable timestamp to the top of the transcript
-// Formats nicely
-// Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-//func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string, err error) {
-//	// Define the desired format layout
-//	timeLayout := "2006-01-02 at 15:04"
-//	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
-//
-//	transcript += "Conversation begins at " + currentTime + "\n\n"
-//
-//	// Remove any message sent by Grab
-//	// Call the AuthTest method to check the authentication and retrieve the bot's user ID
-//	authTestResponse, err := api.AuthTest()
-//	if err != nil {
-//		log.Fatalf("Error calling AuthTest: %s", err)
-//	}
-//
-//	// Remove messages sent by Grab	and mentioning Grab
-//	// Format conversation into string line-by-line
-//	var pureConversation []slack.Message
-//	conversationUsers := map[string]string{}
-//	for _, message := range conversation {
-//
-//		// Don't include messages that mention Grab.
-//		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
-//			continue
-//		}
-//		pureConversation = append(pureConversation, message)
-//
-//		// Translate the user id to a user name
-//		var msgUser *slack.User
-//		if len(conversationUsers[message.User]) == 0 {
-//			msgUser, err = api.GetUserInfo(message.User)
-//			if err != nil {
-//				log.Println(err)
-//			} else {
-//				conversationUsers[message.User] = msgUser.Name
-//			}
-//		}
-//		msgUserName := conversationUsers[message.User]
-//
-//		transcript += msgUserName + ": " + message.Text + "\n\n"
-//		// fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
-//
-//		// Check for attachements
-//		for _, attachment := range message.Attachments {
-//			// Dead-simple way to grab text attachments.
-//			if attachment.Text != "" {
-//				transcript += "\n\n<pre>" + attachment.Text + "</pre>"
-//			}
-//		}
-//
-//		// I guess files are different.
-//		for _, file := range message.Files {
-//			// Useful Debugging things
-//			//fmt.Println(file.Mimetype)
-//			//fmt.Println(file.URLPrivateDownload)
-//
-//			// Download the file from Slack
-//			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
-//			path := fmt.Sprintf("/tmp/%s", basename)
-//			var tempFile *os.File
-//			tempFile, err = os.Create(path)
-//			defer os.Remove(path)
-//			if err != nil {
-//				log.Println("Error creating output file:", err)
-//				return
-//			}
-//			err = api.GetFile(file.URLPrivateDownload, tempFile)
-//			if err != nil {
-//				log.Println("Error getting file from Slack: ", err)
-//				return
-//			}
-//			tempFile.Close()
-//			/*
-//				Check the file type.
-//				If it's an image, then check the File ID. Create a file in /tmp or
-//				something, download it, then upload it to MediaWiki.
-//			*/
-//			if strings.Contains(file.Mimetype, "image") {
-//				// Upload it to MediaWiki. For some reason, I can't just re-use
-//				// the file header. The API doesn't like it.
-//				var fileTitle string
-//				fileTitle, err = uploadToWiki(instance, w, path)
-//				if err != nil {
-//					log.Println("Error uploading file: ", err)
-//					return
-//				}
-//				// It'll be like uhhh [[File:name.jpg]] or whatever.
-//				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
-//			} else if strings.Contains(file.Mimetype, "text") {
-//				var fileContents []byte
-//				fileContents, err = os.ReadFile(path)
-//				if err != nil {
-//					log.Println("Error reading file: ", err)
-//					return
-//				}
-//				transcript += file.Name + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
-//			}
-//		}
-//	}
-//
-//	return pureConversation[0].Text, transcript, nil
-//}
