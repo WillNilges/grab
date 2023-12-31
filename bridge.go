@@ -1,9 +1,12 @@
 package main
 
+/*
+// FIXME: Can/should I create a ChatBridge interface? Methinkso, but menoknowhow?
 type ChatBridge interface {
 	getThread() Thread
 	saveImage(url string)
 }
+*/
 
 type WikiBridge interface {
 	generateTranscript(thread Thread) (transcript string)
