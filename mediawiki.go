@@ -16,6 +16,7 @@ import (
 
 	"github.com/EricMCarroll/go-mwclient"
 	"github.com/antonholmquist/jason"
+	"github.com/gabriel-vasile/mimetype"
 )
 
 type MediaWikiBridge struct {
@@ -55,14 +56,30 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 		// Files will be handled in the wiki. We will download them over in the
 		// chat bridge and then we will, on each message, have the path and title
 		// so that we can call them up and upload them in context here.
-		for _, f := range m.Files {
-			fileTitle, err := w.uploadImage(f)
+		for _, path := range m.Files {
+			mtype, err := mimetype.DetectFile(path)
 			if err != nil {
-				log.Println("Could not upload image: ", err)
+				log.Println("Could not detect mime type: ", err)
 				continue
 			}
-			transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
-			defer os.Remove(f)
+
+			if strings.Contains(mtype.String(), "image") {
+				fileTitle, err := w.uploadImage(path)
+				defer os.Remove(path)
+				if err != nil {
+					log.Println("Could not upload image: ", err)
+					continue
+				}
+				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+			} else if strings.Contains(mtype.String(), "text") {
+				var fileContents []byte
+				fileContents, err = os.ReadFile(path)
+				if err != nil {
+					log.Println("Error reading file: ", err)
+					return
+				}
+				transcript += path + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
+			}
 		}
 	}
 
