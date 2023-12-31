@@ -335,16 +335,12 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 		}
 
-
 		// It must be one of two things:
 		// User went through with a Grab
 		// User cancelled a Grab
 		firstBlockAction := payload.ActionCallback.BlockActions[0]
 		if firstBlockAction.ActionID == AppendThreadConfirm {
 			s := NewSlackBridge(instance)
-
-			// Get MediaWiki credentials
-			// TODO: Decouple
 
 			// Parse form values
 			articleTitle, articleSection, clobber, err := parseSlackForm(payload.RawState)
@@ -380,7 +376,24 @@ func interactionResp() func(c *gin.Context) {
 			// Post Thread to Wiki
 			transcript := w.generateTranscript(thread)
 			url, err := w.uploadArticle(articleTitle, articleSection, transcript, clobber)
+
+
+			// Update the ephemeral message
+			responseData := fmt.Sprintf(
+				`{"replace_original": "true", "thread_ts": "%s", "text": "Article saved! You can find it posted at: %s"}`,
+				payload.Container.ThreadTs,
+				url,
+			)
+			reader := strings.NewReader(responseData)
+			_, err = http.Post(payload.ResponseURL, "application/json", reader)
+
+			if err != nil {
+				log.Printf("Failed updating message: %v", err)
+				c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
+				return
+			}
 			
+			/*
 			// Update ephemeral message
 			responseData := fmt.Sprintf(
 				`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
@@ -392,7 +405,7 @@ func interactionResp() func(c *gin.Context) {
 
 			if err != nil {
 				log.Printf("Failed updating message: %v", err)
-			}
+			}*/
 
 // ------
 			/*

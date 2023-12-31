@@ -64,8 +64,6 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 // gets published by setting or removing variables
 //func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle string, convo string) (err error) {
 func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript string, clobber bool) (url string, err error) {
-
-	//TODO: Separate clobber and clobber'nt for clarity
 	parameters := map[string]string{
 		"action":     "edit",
 		"title":      title,
