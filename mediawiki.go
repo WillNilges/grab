@@ -97,9 +97,6 @@ func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript
 			parameters["section"] = "new"
 			parameters["sectiontitle"] = section
 			parameters["text"] = transcript 
-			// TODO: Get and return the URL
-			return "", w.api.Edit(parameters) // Make a new one
-
 		} else if sectionExists /* && append */ {
 			index, err := w.findSectionId(title, section)
 			if err != nil {
@@ -115,6 +112,7 @@ func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript
 	// Make the request.
 	err = w.api.Edit(parameters)
 	if err != nil {
+		log.Println("Failed to make edit: ", err)
 		return "", err
 	}
 
@@ -124,9 +122,8 @@ func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript
 		log.Println("Could not get article URL: ", err)
 		return "", err
 	}
-	
 
-	return url, err
+	return url, nil
 }
 
 // THIS IS FOR FILES AND NEEDS TO CHANGE

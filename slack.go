@@ -286,15 +286,13 @@ func parseSlackForm(p []byte) (articleTitle string, articleSection string, clobb
 	// Get user-provided article title
 	articleTitle, err = v.GetString("values", "Article Title", "article_title", "value")
 	if err != nil {
-		log.Println("Couldn't parse article title: ", err)
-		return "", "", false, err
+		log.Printf("Couldn't parse article title: %s. Maybe we didn't get one?\n", err)
 	}
 
 	// Get user-provided article section
 	articleSection, err = v.GetString("values", "Article Section", "article_section", "value")
 	if err != nil {
-		log.Println("Couldn't parse section title: ", err)
-		return "", "", false, err
+		log.Printf("Couldn't parse section title: %s. Maybe we didn't get one?\n", err)
 	}
 
 	// Check if we should clobber or not
