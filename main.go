@@ -42,6 +42,9 @@ func init() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// -------   files   --------
+	os.Mkdir("/tmp/grab/", os.FileMode(0777))
 }
 
 func main() {

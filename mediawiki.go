@@ -16,62 +16,140 @@ import (
 
 	"github.com/EricMCarroll/go-mwclient"
 	"github.com/antonholmquist/jason"
+	"github.com/gabriel-vasile/mimetype"
 )
+
+type MediaWikiBridge struct {
+	api *mwclient.Client
+	url string
+}
+
+func NewMediaWikiBridge(instance Instance) (wiki MediaWikiBridge, err error) {
+	w, err := mwclient.New(instance.MediaWikiURL, "Grab")
+	if err != nil {
+		return MediaWikiBridge{}, err
+	}
+	err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
+	if err != nil {
+		return MediaWikiBridge{}, err
+	}
+
+	wiki.api = w
+	wiki.url = instance.MediaWikiURL
+	return wiki, nil
+}
+
+// TODO: Convert markdown(?) to MediaWiki markup
+func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) {
+	// Define the desired format layout
+	timeLayout := "2006-01-02 at 15:04"
+	transcriptBegin := thread.Timestamp.Format(timeLayout)
+	currentTime := time.Now().Format(timeLayout)
+
+	transcript += "Transcript generated at " + currentTime + ".\n\n"
+	transcript += "Conversation begins at " + transcriptBegin + ".\n\n"
+
+	for _, m := range thread.Messages {
+		transcript += m.Author + ": " + m.Text + "\n\n"
+
+		// Files will be handled in the wiki. We will download them over in the
+		// chat bridge and then we will, on each message, have the path and title
+		// so that we can call them up and upload them in context here.
+		for _, path := range m.Files {
+			mtype, err := mimetype.DetectFile(path)
+			if err != nil {
+				log.Println("Could not detect mime type: ", err)
+				continue
+			}
+
+			if strings.Contains(mtype.String(), "image") {
+				fileTitle, err := w.uploadImage(path)
+				defer os.Remove(path)
+				if err != nil {
+					log.Println("Could not upload image: ", err)
+					continue
+				}
+				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+			} else if strings.Contains(mtype.String(), "text") {
+				var fileContents []byte
+				fileContents, err = os.ReadFile(path)
+				if err != nil {
+					log.Println("Error reading file: ", err)
+					return
+				}
+				transcript += path + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
+			}
+		}
+	}
+
+	return transcript
+}
 
 // Helper function for putting things on the wiki. Can easily control how content
 // gets published by setting or removing variables
-func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle string, convo string) (err error) {
-	// Push conversation to the wiki, (overwriting whatever was already there, if Grab was the only person to edit?)
+// func publishToWiki(w *mwclient.Client, clobber bool, title string, sectionTitle string, convo string) (err error) {
+func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript string, clobber bool) (url string, err error) {
 	parameters := map[string]string{
 		"action":     "edit",
 		"title":      title,
-		"appendtext": "\n\n" + convo, // Append some newlines so he gets formatted nicely
+		"appendtext": "\n\n" + transcript, // Append some newlines so he gets formatted nicely
 		"bot":        "true",
-		"summary":    "Grab publishToWiki append section " + sectionTitle,
+		"summary":    "Grab uploadArticle append section " + section,
 	}
 
 	if clobber {
 		delete(parameters, "appendtext")
-		parameters["text"] = convo
-		parameters["summary"] = fmt.Sprintf("Grab publishToWiki clobber section %s", sectionTitle)
+		parameters["text"] = transcript
+		parameters["summary"] = fmt.Sprintf("Grab uploadArticle clobber section %s", section)
 	}
 
-	if sectionTitle != "" {
-		sectionExists, _ := sectionExists(w, title, sectionTitle)
+	if section != "" {
+		sectionExists, _ := w.sectionExists(title, section)
 		if sectionExists && clobber {
 			// If we're clobbering a section, we need to delete it and then
 			// re-make it. Absolutely not ideal, because if a section exists
 			// in the middle of the page, it will move it to the end.
-			index, err := findSectionId(w, title, sectionTitle)
+			index, err := w.findSectionId(title, section)
 			if err != nil {
-				return err
+				return "", err
 			}
 			parameters["section"] = index
 			parameters["text"] = ""
-			w.Edit(parameters) // Delete the section
+			w.api.Edit(parameters) // Delete the section
 
 			parameters["section"] = "new"
-			parameters["sectiontitle"] = sectionTitle
-			parameters["text"] = convo
-			return w.Edit(parameters) // Make a new one
-
+			parameters["sectiontitle"] = section
+			parameters["text"] = transcript
 		} else if sectionExists /* && append */ {
-			index, err := findSectionId(w, title, sectionTitle)
+			index, err := w.findSectionId(title, section)
 			if err != nil {
-				return err
+				return "", err
 			}
 			parameters["section"] = index
 		} else {
 			parameters["section"] = "new"
-			parameters["sectiontitle"] = sectionTitle
+			parameters["sectiontitle"] = section
 		}
 	}
 
 	// Make the request.
-	return w.Edit(parameters)
+	err = w.api.Edit(parameters)
+	if err != nil {
+		log.Println("Failed to make edit: ", err)
+		return "", err
+	}
+
+	// Get and return the URL
+	url, _, err = w.getArticleURL(title)
+	if err != nil {
+		log.Println("Could not get article URL: ", err)
+		return "", err
+	}
+
+	return url, nil
 }
 
-func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename string, err error) {
+func (w *MediaWikiBridge) uploadImage(path string) (filename string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -87,11 +165,11 @@ func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename
 
 	// --- Authentication ---
 	// Steal cookies from the mediawiki library
-	cookieURL, _ := url.Parse(instance.MediaWikiURL)
-	cookieJar.SetCookies(cookieURL, w.DumpCookies())
+	cookieURL, _ := url.Parse(w.url)
+	cookieJar.SetCookies(cookieURL, w.api.DumpCookies())
 
 	// Get csrf token
-	csrfToken, err := w.GetToken(mwclient.CSRFToken)
+	csrfToken, err := w.api.GetToken(mwclient.CSRFToken)
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +205,7 @@ func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename
 		return basename, err
 	}
 	writer.Close()
-	req, err := http.NewRequest(http.MethodPost, instance.MediaWikiURL, bytes.NewReader(body.Bytes()))
+	req, err := http.NewRequest(http.MethodPost, w.url, bytes.NewReader(body.Bytes()))
 
 	if err != nil {
 		return basename, err
@@ -173,7 +251,7 @@ func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename
 	return basename, nil
 }
 
-func getArticleURL(w *mwclient.Client, title string) (url string, missing bool, err error) {
+func (w *MediaWikiBridge) getArticleURL(title string) (url string, missing bool, err error) {
 	newArticleParameters := map[string]string{
 		"action": "query",
 		"format": "json",
@@ -182,7 +260,7 @@ func getArticleURL(w *mwclient.Client, title string) (url string, missing bool, 
 		"inprop": "url",
 	}
 
-	newArticle, err := w.Get(newArticleParameters)
+	newArticle, err := w.api.Get(newArticleParameters)
 	if err != nil {
 		return "", false, err
 	}
@@ -202,7 +280,7 @@ func getArticleURL(w *mwclient.Client, title string) (url string, missing bool, 
 }
 
 // Check if the section exists or not, that's really all we care about (for now).
-func sectionExists(w *mwclient.Client, title string, section string) (exists bool, err error) {
+func (w *MediaWikiBridge) sectionExists(title string, section string) (exists bool, err error) {
 	sectionQueryParameters := map[string]string{
 		"format": "json",
 		"action": "parse",
@@ -210,7 +288,7 @@ func sectionExists(w *mwclient.Client, title string, section string) (exists boo
 		"prop":   "sections",
 	}
 
-	sectionQuery, err := w.Get(sectionQueryParameters)
+	sectionQuery, err := w.api.Get(sectionQueryParameters)
 	if err != nil {
 		return false, err
 	}
@@ -231,7 +309,7 @@ func sectionExists(w *mwclient.Client, title string, section string) (exists boo
 }
 
 // Check if the section exists or not, that's really all we care about (for now).
-func findSectionId(w *mwclient.Client, title string, section string) (id string, err error) {
+func (w *MediaWikiBridge) findSectionId(title string, section string) (id string, err error) {
 	sectionQueryParameters := map[string]string{
 		"format": "json",
 		"action": "parse",
@@ -239,7 +317,7 @@ func findSectionId(w *mwclient.Client, title string, section string) (id string,
 		"prop":   "sections",
 	}
 
-	sectionQuery, err := w.Get(sectionQueryParameters)
+	sectionQuery, err := w.api.Get(sectionQueryParameters)
 	if err != nil {
 		return "", err
 	}
