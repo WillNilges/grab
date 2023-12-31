@@ -204,6 +204,36 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 		return http.StatusBadRequest, errors.New("This function only works inside of threads")
 	}
 
+	/*
+	// Clean up old Grab messages
+	// FIXME: This doesn't work, probably due to ephemeral messages.
+	// This brings up a problem with having to ping Grab. Garbage will build
+	// up in the thread (@Grab's and messages from Grab for the user)
+	s := NewSlackBridge(instance)
+	conversation, err := s.getConversationReplies(am.Channel, am.ThreadTimeStamp)
+	if err != nil {
+		log.Println("Could not get conversation: ", err)
+	}
+
+	// Get the bot's userID
+	authTestResponse, err := s.api.AuthTest()
+	if err != nil {
+		log.Fatalf("Error calling AuthTest: %s", err)
+	}
+
+	for _, message := range conversation {
+		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+			continue
+		}
+
+		_, _, err := s.api.DeleteMessage(am.Channel, message.Timestamp)
+		if err != nil {
+			log.Println("Could not delete message from Grab: ", err)
+		}
+	}
+	// </Clean up old Grab messages>
+	*/
+
 	blockMsg := createBlockMessage()
 
 	_, err = slackClient.PostEphemeral(
@@ -484,13 +514,9 @@ func (s *SlackBridge) slackTSToTime(slackTimestamp string) (slackTime time.Time)
 
 // TODO: Save thread images to a local directory
 func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Thread, err error) {
-	// Get the conversation history
-	params := slack.GetConversationRepliesParameters{
-		ChannelID: channelID,
-		Timestamp: threadTs,
-	}
-	conversation, _, _, err := s.api.GetConversationReplies(&params)
+	conversation, err := s.getConversationReplies(channelID, threadTs)
 	if err != nil {
+		log.Println("Could not get conversation: ", err)
 		return Thread{}, err
 	}
 
@@ -569,6 +595,19 @@ func (s *SlackBridge) getFile(file slack.File) (path string, err error) {
 	}
 	tempFile.Close()
 	return path, nil
+}
+
+func (s *SlackBridge) getConversationReplies(channelID string, threadTs string) (conversation []slack.Message, err error) {
+	// Get the conversation history
+	params := slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTs,
+	}
+	conversation, _, _, err = s.api.GetConversationReplies(&params)
+	if err != nil {
+		return conversation, err
+	}
+	return conversation, nil
 }
 
 func getThreadConversation(api *slack.Client, channelID string, threadTs string) (conversation []slack.Message, err error) {
