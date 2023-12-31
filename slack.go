@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,6 +33,7 @@ const (
 	AppendThreadCancel  = "append_thread_transcript_cancel"
 )
 
+// Middleware to verify integrity of API calls from Slack
 func signatureVerification(c *gin.Context) {
 	verifier, err := slack.NewSecretsVerifier(c.Request.Header, os.Getenv("SIGNATURE_SECRET"))
 	if err != nil {
@@ -57,6 +59,7 @@ func signatureVerification(c *gin.Context) {
 	c.Next()
 }
 
+// Register a user with Grab. Get Slack credentials and Wiki credentials
 func installResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		_, errExists := c.GetQuery("error")
@@ -100,6 +103,7 @@ func installResp() func(c *gin.Context) {
 	}
 }
 
+// Respond to Event
 func eventResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		bodyBytes, err := io.ReadAll(c.Request.Body)
@@ -140,11 +144,12 @@ func eventResp() func(c *gin.Context) {
 				log.Println("Got mentioned")
 				am := &slackevents.AppMentionEvent{}
 				json.Unmarshal(*ce.InnerEvent, am)
-				err := handleMention(ce, am)
+				httpStatus, err := handleMention(ce, am)
 				if err != nil {
-					log.Println("Error responding to thread: ", err)
-					c.String(http.StatusInternalServerError, "Could not respond to thread: %s", err.Error())
+					log.Println("Error responding to AppMention Event: ", err)
+					c.String(httpStatus, "Error responding to AppMention Event: %s", err.Error())
 				}
+				c.String(http.StatusOK, "ack")
 			case string(slackevents.AppUninstalled):
 				log.Printf("App uninstalled from %s.\n", event.TeamID)
 				err = deleteInstance(db, event.TeamID)
@@ -160,15 +165,25 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
+
+type SlackBridge struct {
+	api *slack.Client
+}
+
+func NewSlackBridge(instance Instance) (s SlackBridge) {
+	s.api = slack.New(instance.SlackAccessToken)
+	return s
+}
+
 // FIXME: Make him return error codes and what-have-you
 // TODO: Somehow track how many requests were made per minute or whatever, don't
 // duplicate requests in the same thread
-func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (err error) {
+func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (httpStatus int, err error) {
 	// Retrieve credentials to log into Slack and MediaWiki
 	var instance Instance
 	instance, err = selectInstanceByTeamID(db, ce.TeamID)
 	if err != nil {
-		return err
+		return http.StatusInternalServerError, err
 	}
 	slackClient := slack.New(instance.SlackAccessToken)
 
@@ -185,10 +200,9 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 		)
 		if err != nil {
 			log.Printf("failed posting message: %v\n", err)
-			return err
+			return http.StatusInternalServerError, err
 		}
-		//c.String(http.StatusBadRequest, "This function only works inside of threads: %s", err.Error())
-		return nil
+		return http.StatusBadRequest, errors.New("This function only works inside of threads")
 	}
 
 	blockMsg := createBlockMessage()
@@ -201,10 +215,9 @@ func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMe
 	)
 	if err != nil {
 		log.Println("Error posting ephemeral message: ", err)
-		//c.String(http.StatusInternalServerError, "error posting ephemeral message: %s", err.Error())
-		return nil
+		return http.StatusInternalServerError, err 
 	}
-	return nil
+	return http.StatusOK, nil
 }
 
 func createBlockMessage() slack.MsgOption {
@@ -324,37 +337,66 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 		}
 
-		// Log into Slack (we know we're gonna need that)
-		slackClient := slack.New(instance.SlackAccessToken)
 
 		// It must be one of two things:
 		// User went through with a Grab
 		// User cancelled a Grab
 		firstBlockAction := payload.ActionCallback.BlockActions[0]
 		if firstBlockAction.ActionID == AppendThreadConfirm {
+			s := NewSlackBridge(instance)
 
 			// Get MediaWiki credentials
 			// TODO: Decouple
-			w, err := mwclient.New(instance.MediaWikiURL, "Grab")
-			if err != nil {
-				log.Println(err)
-				c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-				return
-			}
-			err = w.Login(instance.MediaWikiUname, instance.MediaWikiPword)
-			if err != nil {
-				log.Println(err)
-				c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-				return
-			}
 
 			// Parse form values
 			articleTitle, articleSection, clobber, err := parseSlackForm(payload.RawState)
+			if err != nil {
+				c.String(http.StatusInternalServerError, "Could not parse form: %s", err)
+				return
+			}
 
 			// Ack so we don't die when eating large messages
 			log.Println("Command received. Saving thread...")
 			c.String(http.StatusOK, "Command received. Saving thread...")
 
+			// Get the Thread into a common form
+			thread, err := s.getThread(payload.Channel.ID, payload.Container.ThreadTs)
+
+			// Figure out what kind of Wiki this org has
+			var w WikiBridge
+			if len(instance.MediaWikiURL) > 0 {
+				w, err = NewMediaWikiBridge(instance)
+				if err != nil {
+					log.Printf("error logging into mediawiki: %s\n", err.Error())
+					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
+					return
+				}
+			}
+
+			// If we didn't get a title, then grab and truncate the first message
+			if len(articleTitle) == 0 {
+				articleTitle = thread.getTitle()
+			}
+
+			// Post Thread to Wiki
+			transcript := w.generateTranscript(thread)
+			url, err := w.uploadArticle(articleTitle, articleSection, transcript, clobber)
+			
+			// Update ephemeral message
+			responseData := fmt.Sprintf(
+				`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
+				payload.Message.ThreadTimestamp,
+				url,
+			)
+			reader := strings.NewReader(responseData)
+			_, err = http.Post(payload.ResponseURL, "application/json", reader)
+
+			if err != nil {
+				log.Printf("Failed updating message: %v", err)
+			}
+
+// ------
+			/*
 			// OK, now actually post it to the wiki.
 			// TODO: Decouple
 			var conversation []slack.Message
@@ -409,6 +451,7 @@ func interactionResp() func(c *gin.Context) {
 			if err != nil {
 				log.Printf("Failed updating message: %v", err)
 			}
+*/
 
 		} else if firstBlockAction.ActionID == AppendThreadCancel {
 			// Update the ephemeral message
@@ -429,7 +472,7 @@ func interactionResp() func(c *gin.Context) {
 	}
 }
 
-func (s *SlackServicer) slackTSToTime(slackTimestamp string) (slackTime time.Time) {
+func (s *SlackBridge) slackTSToTime(slackTimestamp string) (slackTime time.Time) {
 	// Convert the Slack timestamp to a Unix timestamp (float64)
 	slackUnixTimestamp, err := strconv.ParseFloat(strings.Split(slackTimestamp, ".")[0], 64)
 	if err != nil {
@@ -442,11 +485,8 @@ func (s *SlackServicer) slackTSToTime(slackTimestamp string) (slackTime time.Tim
 	return slackTime
 }
 
-type SlackServicer struct {
-	api *slack.Client
-}
-
-func (s *SlackServicer) getThread(channelID string, threadTs string, title string) (thread Thread, err error) {
+// TODO: Save thread images to a local directory
+func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Thread, err error) {
 	// Get the conversation history
 	params := slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
@@ -461,18 +501,6 @@ func (s *SlackServicer) getThread(channelID string, threadTs string, title strin
 	authTestResponse, err := s.api.AuthTest()
 	if err != nil {
 		log.Fatalf("Error calling AuthTest: %s", err)
-	}
-
-	// Get title from the thread if it doesn't exist
-	if len(title) == 0 {
-		thread.Title = conversation[0].Text
-	} else {
-		thread.Title = title
-	}
-
-	// Truncate him
-	if len(thread.Title) > 20 {
-		thread.Title = thread.Title[0:20] + "..."
 	}
 
 	// The ThreadTS is when this party started 
