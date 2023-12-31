@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EricMCarroll/go-mwclient"
 	"github.com/antonholmquist/jason"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
@@ -392,20 +391,6 @@ func interactionResp() func(c *gin.Context) {
 				c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
 				return
 			}
-			
-			/*
-			// Update ephemeral message
-			responseData := fmt.Sprintf(
-				`{"replace_original": "true", "thread_ts": "%s", "text": "Article updated! You can find it posted at: %s"}`,
-				payload.Message.ThreadTimestamp,
-				url,
-			)
-			reader := strings.NewReader(responseData)
-			_, err = http.Post(payload.ResponseURL, "application/json", reader)
-
-			if err != nil {
-				log.Printf("Failed updating message: %v", err)
-			}*/
 
 // ------
 			/*
@@ -555,13 +540,36 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 
 		// Check for files
 		for _, file := range message.Files { 
-			m.Files = append(m.Files, file.URLPrivateDownload)
+			path, err := s.getFile(file)
+			if err != nil {
+				log.Println("Could not save file: ", err)
+			}
+			m.Files = append(m.Files, path)
 		}
 
 		thread.Messages = append(thread.Messages, m)
 	}
 
 	return thread, nil
+}
+
+func (s *SlackBridge) getFile(file slack.File) (path string, err error) {
+	basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
+	path = fmt.Sprintf("/tmp/grab/%s", basename)
+	var tempFile *os.File
+	tempFile, err = os.Create(path)
+	defer os.Remove(path)
+	if err != nil {
+		log.Println("Error creating output file:", err)
+		return
+	}
+	err = s.api.GetFile(file.URLPrivateDownload, tempFile)
+	if err != nil {
+		log.Println("Error getting file from Slack: ", err)
+		return
+	}
+	tempFile.Close()
+	return path, nil
 }
 
 func getThreadConversation(api *slack.Client, channelID string, threadTs string) (conversation []slack.Message, err error) {
@@ -583,104 +591,104 @@ func getThreadConversation(api *slack.Client, channelID string, threadTs string)
 // Adds human readable timestamp to the top of the transcript
 // Formats nicely
 // Fetches images, uploads them to the Wiki, and links them in appropriately (TODO)
-func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string, err error) {
-	// Define the desired format layout
-	timeLayout := "2006-01-02 at 15:04"
-	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
-
-	transcript += "Conversation begins at " + currentTime + "\n\n"
-
-	// Remove any message sent by Grab
-	// Call the AuthTest method to check the authentication and retrieve the bot's user ID
-	authTestResponse, err := api.AuthTest()
-	if err != nil {
-		log.Fatalf("Error calling AuthTest: %s", err)
-	}
-
-	// Remove messages sent by Grab	and mentioning Grab
-	// Format conversation into string line-by-line
-	var pureConversation []slack.Message
-	conversationUsers := map[string]string{}
-	for _, message := range conversation {
-
-		// Don't include messages that mention Grab.
-		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
-			continue
-		}
-		pureConversation = append(pureConversation, message)
-
-		// Translate the user id to a user name
-		var msgUser *slack.User
-		if len(conversationUsers[message.User]) == 0 {
-			msgUser, err = api.GetUserInfo(message.User)
-			if err != nil {
-				log.Println(err)
-			} else {
-				conversationUsers[message.User] = msgUser.Name
-			}
-		}
-		msgUserName := conversationUsers[message.User]
-
-		transcript += msgUserName + ": " + message.Text + "\n\n"
-		// fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
-
-		// Check for attachements
-		for _, attachment := range message.Attachments {
-			// Dead-simple way to grab text attachments.
-			if attachment.Text != "" {
-				transcript += "\n\n<pre>" + attachment.Text + "</pre>"
-			}
-		}
-
-		// I guess files are different.
-		for _, file := range message.Files {
-			// Useful Debugging things
-			//fmt.Println(file.Mimetype)
-			//fmt.Println(file.URLPrivateDownload)
-
-			// Download the file from Slack
-			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
-			path := fmt.Sprintf("/tmp/%s", basename)
-			var tempFile *os.File
-			tempFile, err = os.Create(path)
-			defer os.Remove(path)
-			if err != nil {
-				log.Println("Error creating output file:", err)
-				return
-			}
-			err = api.GetFile(file.URLPrivateDownload, tempFile)
-			if err != nil {
-				log.Println("Error getting file from Slack: ", err)
-				return
-			}
-			tempFile.Close()
-			/*
-				Check the file type.
-				If it's an image, then check the File ID. Create a file in /tmp or
-				something, download it, then upload it to MediaWiki.
-			*/
-			if strings.Contains(file.Mimetype, "image") {
-				// Upload it to MediaWiki. For some reason, I can't just re-use
-				// the file header. The API doesn't like it.
-				var fileTitle string
-				fileTitle, err = uploadToWiki(instance, w, path)
-				if err != nil {
-					log.Println("Error uploading file: ", err)
-					return
-				}
-				// It'll be like uhhh [[File:name.jpg]] or whatever.
-				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
-			} else if strings.Contains(file.Mimetype, "text") {
-				var fileContents []byte
-				fileContents, err = os.ReadFile(path)
-				if err != nil {
-					log.Println("Error reading file: ", err)
-					return
-				}
-				transcript += file.Name + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
-			}
-		}
-	}
-
-	return pureConversation[0].Text, transcript, nil
-}
+//func generateTranscript(instance *Instance, api *slack.Client, w *mwclient.Client, conversation []slack.Message) (title string, transcript string, err error) {
+//	// Define the desired format layout
+//	timeLayout := "2006-01-02 at 15:04"
+//	currentTime := time.Now().Format(timeLayout) // FIXME: Wait this is wrong. Should be when the convo begins.
+//
+//	transcript += "Conversation begins at " + currentTime + "\n\n"
+//
+//	// Remove any message sent by Grab
+//	// Call the AuthTest method to check the authentication and retrieve the bot's user ID
+//	authTestResponse, err := api.AuthTest()
+//	if err != nil {
+//		log.Fatalf("Error calling AuthTest: %s", err)
+//	}
+//
+//	// Remove messages sent by Grab	and mentioning Grab
+//	// Format conversation into string line-by-line
+//	var pureConversation []slack.Message
+//	conversationUsers := map[string]string{}
+//	for _, message := range conversation {
+//
+//		// Don't include messages that mention Grab.
+//		if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
+//			continue
+//		}
+//		pureConversation = append(pureConversation, message)
+//
+//		// Translate the user id to a user name
+//		var msgUser *slack.User
+//		if len(conversationUsers[message.User]) == 0 {
+//			msgUser, err = api.GetUserInfo(message.User)
+//			if err != nil {
+//				log.Println(err)
+//			} else {
+//				conversationUsers[message.User] = msgUser.Name
+//			}
+//		}
+//		msgUserName := conversationUsers[message.User]
+//
+//		transcript += msgUserName + ": " + message.Text + "\n\n"
+//		// fmt.Printf("[%s] %s: %s\n", message.Timestamp, message.User, message.Text)
+//
+//		// Check for attachements
+//		for _, attachment := range message.Attachments {
+//			// Dead-simple way to grab text attachments.
+//			if attachment.Text != "" {
+//				transcript += "\n\n<pre>" + attachment.Text + "</pre>"
+//			}
+//		}
+//
+//		// I guess files are different.
+//		for _, file := range message.Files {
+//			// Useful Debugging things
+//			//fmt.Println(file.Mimetype)
+//			//fmt.Println(file.URLPrivateDownload)
+//
+//			// Download the file from Slack
+//			basename := fmt.Sprintf("%s.%s", uuid.New(), file.Filetype)
+//			path := fmt.Sprintf("/tmp/%s", basename)
+//			var tempFile *os.File
+//			tempFile, err = os.Create(path)
+//			defer os.Remove(path)
+//			if err != nil {
+//				log.Println("Error creating output file:", err)
+//				return
+//			}
+//			err = api.GetFile(file.URLPrivateDownload, tempFile)
+//			if err != nil {
+//				log.Println("Error getting file from Slack: ", err)
+//				return
+//			}
+//			tempFile.Close()
+//			/*
+//				Check the file type.
+//				If it's an image, then check the File ID. Create a file in /tmp or
+//				something, download it, then upload it to MediaWiki.
+//			*/
+//			if strings.Contains(file.Mimetype, "image") {
+//				// Upload it to MediaWiki. For some reason, I can't just re-use
+//				// the file header. The API doesn't like it.
+//				var fileTitle string
+//				fileTitle, err = uploadToWiki(instance, w, path)
+//				if err != nil {
+//					log.Println("Error uploading file: ", err)
+//					return
+//				}
+//				// It'll be like uhhh [[File:name.jpg]] or whatever.
+//				transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+//			} else if strings.Contains(file.Mimetype, "text") {
+//				var fileContents []byte
+//				fileContents, err = os.ReadFile(path)
+//				if err != nil {
+//					log.Println("Error reading file: ", err)
+//					return
+//				}
+//				transcript += file.Name + ":\n<pre>" + string(fileContents) + "</pre>\n\n"
+//			}
+//		}
+//	}
+//
+//	return pureConversation[0].Text, transcript, nil
+//}

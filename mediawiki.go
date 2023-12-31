@@ -20,6 +20,7 @@ import (
 
 type MediaWikiBridge struct {
 	api *mwclient.Client
+	url string
 }
 
 func NewMediaWikiBridge(instance Instance) (wiki MediaWikiBridge, err error) {
@@ -33,6 +34,7 @@ func NewMediaWikiBridge(instance Instance) (wiki MediaWikiBridge, err error) {
 	}
 
 	wiki.api = w
+	wiki.url = instance.MediaWikiURL
 	return wiki, nil
 }
 
@@ -53,7 +55,14 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 		// Files will be handled in the wiki. We will download them over in the
 		// chat bridge and then we will, on each message, have the path and title
 		// so that we can call them up and upload them in context here.
-		// TODO: Upload and link(?) files to messages (so they're in context)
+		for _, f := range m.Files {
+			fileTitle, err := w.uploadImage(f)
+			if err != nil {
+				log.Println("Could not upload image: ", err)
+				continue
+			}
+			transcript += fmt.Sprintf("[[File:%s]]\n\n", fileTitle)
+		}
 	}
 
 	return transcript
@@ -124,8 +133,7 @@ func (w *MediaWikiBridge) uploadArticle(title string, section string, transcript
 	return url, nil
 }
 
-// THIS IS FOR FILES AND NEEDS TO CHANGE
-func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename string, err error) {
+func (w *MediaWikiBridge) uploadImage(path string) (filename string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -141,11 +149,11 @@ func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename
 
 	// --- Authentication ---
 	// Steal cookies from the mediawiki library
-	cookieURL, _ := url.Parse(instance.MediaWikiURL)
-	cookieJar.SetCookies(cookieURL, w.DumpCookies())
+	cookieURL, _ := url.Parse(w.url)
+	cookieJar.SetCookies(cookieURL, w.api.DumpCookies())
 
 	// Get csrf token
-	csrfToken, err := w.GetToken(mwclient.CSRFToken)
+	csrfToken, err := w.api.GetToken(mwclient.CSRFToken)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +189,7 @@ func uploadToWiki(instance *Instance, w *mwclient.Client, path string) (filename
 		return basename, err
 	}
 	writer.Close()
-	req, err := http.NewRequest(http.MethodPost, instance.MediaWikiURL, bytes.NewReader(body.Bytes()))
+	req, err := http.NewRequest(http.MethodPost, w.url, bytes.NewReader(body.Bytes()))
 
 	if err != nil {
 		return basename, err
