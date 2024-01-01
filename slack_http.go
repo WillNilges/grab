@@ -256,7 +256,7 @@ func interactionResp() func(c *gin.Context) {
 		var instance Instance
 		instance, err = selectInstanceByTeamID(db, payload.User.TeamID)
 		if err != nil {
-			log.Println(err)
+			log.Println("Could not get credentials from DB", err)
 			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 		}
 
@@ -280,6 +280,10 @@ func interactionResp() func(c *gin.Context) {
 
 			// Get the Thread into a common form
 			thread, err := s.getThread(payload.Channel.ID, payload.Container.ThreadTs)
+			if err != nil {
+				log.Println("Could not get thread: ", err)
+				c.String(http.StatusInternalServerError, "error getting thread: %s", err.Error())
+			}
 
 			// Figure out what kind of Wiki this org has
 			var w WikiBridge

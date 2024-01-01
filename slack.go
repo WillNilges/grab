@@ -61,7 +61,6 @@ func (s *SlackBridge) parseSlackForm(p []byte) (articleTitle string, articleSect
 func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Thread, err error) {
 	conversation, err := s.getConversationReplies(channelID, threadTs)
 	if err != nil {
-		log.Println("Could not get conversation: ", err)
 		return Thread{}, err
 	}
 

@@ -1,0 +1,36 @@
+display_information:
+  name: Grab (Development)
+  description: Stop losing sh*t!
+  background_color: "#4b6c63"
+  long_description: A bot that allows you to easily transcribe threads and conversations to your wiki. Stop letting information get buried! Save entire threads, or save a range of messages outside a thread.
+features:
+  bot_user:
+    display_name: Grab Dev
+    always_online: true
+oauth_config:
+  redirect_urls:
+    - https://xxx.ngrok-free.app/slack/install
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - commands
+      - files:read
+      - groups:read
+      - remote_files:read
+      - users:read
+      - groups:history
+settings:
+  event_subscriptions:
+    request_url: https://xxx.ngrok-free.app/slack/event/handle
+    bot_events:
+      - app_mention
+      - app_uninstalled
+  interactivity:
+    is_enabled: true
+    request_url: https://xxx.ngrok-free.app/slack/interaction/handle
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
