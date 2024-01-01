@@ -26,8 +26,7 @@ func NewSlackBridge(instance Instance) (s SlackBridge) {
 func (s *SlackBridge) parseSlackForm(p []byte) (articleTitle string, articleSection string, clobber bool, err error) {
 	v, err := jason.NewObjectFromBytes(p)
 	if err != nil {
-		log.Println("error saving to wiki: ", err)
-		//c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+		log.Println("Error parsing slack form: ", err)
 		return "", "", false, err
 	}
 
@@ -100,6 +99,9 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 		m.Timestamp = s.slackTSToTime(message.Timestamp)
 		m.Author = conversationUsers[message.User]
 		m.Text = message.Text
+
+		// TODO: Parse Slack Block Bullshit to Markdown
+		// m.Text, err = s.messageBlocksToMarkdown(message)
 
 		// Check for attachements
 		for _, attachment := range message.Attachments {
@@ -205,11 +207,11 @@ func (s *SlackBridge) createBlockMessage() slack.MsgOption {
 	clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
 
 	// === CONFIRM BUTTON ===
-	confirmButton := slack.NewButtonBlockElement(AppendThreadConfirm, "CONFIRM", slack.NewTextBlockObject("plain_text", "CONFIRM", false, false))
+	confirmButton := slack.NewButtonBlockElement(AppendThreadConfirm, "Confirm", slack.NewTextBlockObject("plain_text", "Confirm", false, false))
 	confirmButton.Style = "primary"
 
 	// === CANCEL BUTTON ===
-	cancelButton := slack.NewButtonBlockElement(AppendThreadCancel, "CANCEL", slack.NewTextBlockObject("plain_text", "CANCEL", false, false))
+	cancelButton := slack.NewButtonBlockElement(AppendThreadCancel, "Cancel", slack.NewTextBlockObject("plain_text", "Cancel", false, false))
 
 	buttons := slack.NewActionBlock("", confirmButton, cancelButton)
 
@@ -222,4 +224,27 @@ func (s *SlackBridge) createBlockMessage() slack.MsgOption {
 	)
 
 	return blockMsg
+}
+
+func (s *SlackBridge) messageBlocksToMarkdown(message slack.Message) (md string, err error) {
+	jBytes, _ := message.Blocks.MarshalJSON()
+	//fmt.Println(string(jBytes))
+
+	j, err := jason.NewObjectFromBytes(jBytes)
+	if err != nil {
+		log.Println("error saving to wiki: ", err)
+		//c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
+		return "", err
+	}
+
+	fmt.Println("Chom")
+	fmt.Println(j.GetObjectArray(""))
+
+		/*
+	// Note there might be a better way to get this info, but I figured this structure out from looking at the json response
+	firstName := i.View.State.Values["First Name"]["firstName"].Value
+	lastName := i.View.State.Values["Last Name"]["lastName"].Value
+		*/
+
+	return md, nil
 }

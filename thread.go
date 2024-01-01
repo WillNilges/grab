@@ -11,9 +11,9 @@ func (t *Thread) getTitle() string {
 	var title string
 	title = t.Messages[0].Text
 
-	// Truncate him
-	if len(title) > 20 {
-		title = title[0:20] + "..."
+	// Truncate the first message to 32 characters
+	if len(title) > 32 {
+		title = title[0:32]
 	}
 	return title
 }
