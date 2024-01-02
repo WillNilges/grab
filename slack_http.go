@@ -3,12 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +23,7 @@ type GrabBlockActionIDs string
 
 const (
 	// Callback ID
-	AppendThread = "append_thread_transcript"
+	AppendThread = "append_thread_msg"
 	// Block Action IDs for that Callback ID
 	AppendThreadConfirm = "append_thread_transcript_confirm"
 	AppendThreadCancel  = "append_thread_transcript_cancel"
@@ -136,16 +136,6 @@ func eventResp() func(c *gin.Context) {
 				return
 			}
 			switch ie.Type {
-			case string(slackevents.AppMention):
-				log.Println("Got mentioned")
-				am := &slackevents.AppMentionEvent{}
-				json.Unmarshal(*ce.InnerEvent, am)
-				httpStatus, err := handleMention(ce, am)
-				if err != nil {
-					log.Println("Error responding to AppMention Event: ", err)
-					c.String(httpStatus, "Error responding to AppMention Event: %s", err.Error())
-				}
-				c.String(http.StatusOK, "ack")
 			case string(slackevents.AppUninstalled):
 				log.Printf("App uninstalled from %s.\n", event.TeamID)
 				err = deleteInstance(db, event.TeamID)
@@ -161,81 +151,6 @@ func eventResp() func(c *gin.Context) {
 	}
 }
 
-// TODO: Somehow track how many requests were made per minute or whatever, don't
-// duplicate requests in the same thread
-func handleMention(ce *slackevents.EventsAPICallbackEvent, am *slackevents.AppMentionEvent) (httpStatus int, err error) {
-	// Retrieve credentials to log into Slack and MediaWiki
-	var instance Instance
-	instance, err = selectInstanceByTeamID(db, ce.TeamID)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-
-	s := NewSlackBridge(instance)
-
-	// First of all, are we in a thread?
-	if am.ThreadTimeStamp == "" {
-		_, err = s.api.PostEphemeral(
-			am.Channel,
-			am.User,
-			slack.MsgOptionTS(am.ThreadTimeStamp),
-			slack.MsgOptionText(
-				"Sorry, I only work inside threads!",
-				false,
-			),
-		)
-		if err != nil {
-			log.Printf("failed posting message: %v\n", err)
-			return http.StatusInternalServerError, err
-		}
-		return http.StatusBadRequest, errors.New("This function only works inside of threads")
-	}
-
-	/*
-		// Clean up old Grab messages
-		// FIXME: This doesn't work, probably due to ephemeral messages.
-		// This brings up a problem with having to ping Grab. Garbage will build
-		// up in the thread (@Grab's and messages from Grab for the user)
-		s := NewSlackBridge(instance)
-		conversation, err := s.getConversationReplies(am.Channel, am.ThreadTimeStamp)
-		if err != nil {
-			log.Println("Could not get conversation: ", err)
-		}
-
-		// Get the bot's userID
-		authTestResponse, err := s.api.AuthTest()
-		if err != nil {
-			log.Fatalf("Error calling AuthTest: %s", err)
-		}
-
-		for _, message := range conversation {
-			if message.User == authTestResponse.UserID || strings.Contains(message.Text, fmt.Sprintf("<@%s>", authTestResponse.UserID)) {
-				continue
-			}
-
-			_, _, err := s.api.DeleteMessage(am.Channel, message.Timestamp)
-			if err != nil {
-				log.Println("Could not delete message from Grab: ", err)
-			}
-		}
-		// </Clean up old Grab messages>
-	*/
-
-	blockMsg := s.createBlockMessage()
-
-	_, err = s.api.PostEphemeral(
-		am.Channel,
-		am.User,
-		slack.MsgOptionTS(am.ThreadTimeStamp),
-		blockMsg,
-	)
-	if err != nil {
-		log.Println("Error posting ephemeral message: ", err)
-		return http.StatusInternalServerError, err
-	}
-	return http.StatusOK, nil
-}
-
 func interactionResp() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// Get raw HTTP request into useful Slack object
@@ -246,8 +161,10 @@ func interactionResp() func(c *gin.Context) {
 			return
 		}
 
-		// If it's not a block action, we don't care.
-		if payload.Type != "block_actions" {
+		// If it's not a modal action, we don't care.
+		validPayloads := []string{"view_submission", "message_action"}
+		if slices.Contains(validPayloads, string(payload.Type)) == false {
+			log.Println("Invalid payload type: ", payload.Type)
 			c.String(http.StatusBadRequest, "Invalid payload type: %s", payload.Type)
 			return
 		}
@@ -260,81 +177,93 @@ func interactionResp() func(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "error reading slack access token: %s", err.Error())
 		}
 
-		// It must be one of two things:
-		// User went through with a Grab
-		// User cancelled a Grab
-		firstBlockAction := payload.ActionCallback.BlockActions[0]
-		if firstBlockAction.ActionID == AppendThreadConfirm {
-			s := NewSlackBridge(instance)
+		s := NewSlackBridge(instance)
 
-			// Parse form values
-			articleTitle, articleSection, clobber, err := s.parseSlackForm(payload.RawState)
+		switch payload.Type {
+		case "message_action":
+			err := s.handleMessageAction(payload)
 			if err != nil {
-				c.String(http.StatusInternalServerError, "Could not parse form: %s", err)
-				return
+				fmt.Printf("Error handling message_action: %s", err)
+				c.String(http.StatusInternalServerError, "Error handling message_action: %s", err.Error())
 			}
-
-			// Ack so we don't die when eating large messages
-			log.Println("Command received. Saving thread...")
-			c.String(http.StatusOK, "Command received. Saving thread...")
-
-			// Get the Thread into a common form
-			thread, err := s.getThread(payload.Channel.ID, payload.Container.ThreadTs)
+		case "view_submission":
+			err := s.handleViewSubmission(c, payload, instance)
 			if err != nil {
-				log.Println("Could not get thread: ", err)
-				c.String(http.StatusInternalServerError, "error getting thread: %s", err.Error())
-			}
-
-			// Figure out what kind of Wiki this org has
-			var w WikiBridge
-			if len(instance.MediaWikiURL) > 0 {
-				wiki, err := NewMediaWikiBridge(instance)
-				w = &wiki // Forgive me father for I have sinned
-				if err != nil {
-					log.Printf("error logging into mediawiki: %s\n", err.Error())
-					c.String(http.StatusInternalServerError, "error logging into mediawiki: %s", err.Error())
-					return
-				}
-			}
-
-			// If we didn't get a title, then grab and truncate the first message
-			if len(articleTitle) == 0 {
-				articleTitle = thread.getTitle()
-			}
-
-			// Post Thread to Wiki
-			transcript := w.generateTranscript(thread)
-			url, err := w.uploadArticle(articleTitle, articleSection, transcript, clobber)
-
-			// Update the ephemeral message
-			responseData := fmt.Sprintf(
-				`{"replace_original": "true", "thread_ts": "%s", "text": "Article saved! You can find it posted at: %s"}`,
-				payload.Container.ThreadTs,
-				url,
-			)
-			reader := strings.NewReader(responseData)
-			_, err = http.Post(payload.ResponseURL, "application/json", reader)
-
-			if err != nil {
-				log.Printf("Failed updating message: %v", err)
-				c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
-				return
-			}
-		} else if firstBlockAction.ActionID == AppendThreadCancel {
-			// Update the ephemeral message
-			responseData := fmt.Sprintf(
-				`{"replace_original": "true", "thread_ts": "%s", "text": "Grab request cancelled."}`,
-				payload.Container.ThreadTs,
-			)
-			reader := strings.NewReader(responseData)
-			_, err := http.Post(payload.ResponseURL, "application/json", reader)
-
-			if err != nil {
-				log.Printf("Failed updating message: %v", err)
-				c.String(http.StatusInternalServerError, "Failed updating message: %s", err.Error())
-				return
+				fmt.Printf("Error handling view_submission: %s", err)
+				c.String(http.StatusInternalServerError, "Error handling view_submission: %s", err.Error())
 			}
 		}
-
 	}
+}
+
+func (s *SlackBridge) handleMessageAction(payload slack.InteractionCallback) (err error) {
+	modalRequest := s.generateModalRequest(payload.Channel.ID, payload.Message.ThreadTimestamp, payload.User.ID)
+	_, err = s.api.OpenView(payload.TriggerID, modalRequest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.InteractionCallback, instance Instance) (err error) {
+	articleTitle := payload.View.State.Values["Article Title"]["articleTitle"].Value
+	sectionTitle := payload.View.State.Values["Section Title"]["sectionTitle"].Value
+	clobberValue := payload.View.State.Values["Clobber"]["clobber"].SelectedOptions[0].Value
+	clobber := false
+	if clobberValue == "confirmed" {
+		clobber = true
+	}
+
+	// Get the Thread into a common form
+	fmt.Println("Channel ID and Thread TS: ", payload.Channel.ID, payload.Message.ThreadTimestamp)
+	messageContext := strings.Split(payload.View.ExternalID, ",")
+	channelID := messageContext[0]
+	threadTS := messageContext[1]
+	userID := messageContext[2]
+
+	thread, err := s.getThread(channelID, threadTS)
+	if err != nil {
+		return err
+	}
+
+	// If we didn't get a title, then grab and truncate the first message
+	if len(articleTitle) == 0 {
+		articleTitle = thread.getTitle()
+	}
+
+	// Ack so we don't die when eating large messages
+	c.String(http.StatusOK, "")
+
+	// Figure out what kind of Wiki this org has
+	var w WikiBridge
+	if len(instance.MediaWikiURL) > 0 {
+		wiki, err := NewMediaWikiBridge(instance)
+		w = &wiki // Forgive me father for I have sinned
+		if err != nil {
+			return err
+		}
+	}
+
+	// Post Thread to Wiki
+	transcript := w.generateTranscript(thread)
+	url, err := w.uploadArticle(articleTitle, sectionTitle, transcript, clobber)
+
+	// Let the user know where the page is
+	responseData := fmt.Sprintf(
+		`Article saved! You can find it posted at: %s`,
+		url,
+	)
+
+	_, err = s.api.PostEphemeral(
+		channelID,
+		userID,
+		slack.MsgOptionTS(threadTS),
+		slack.MsgOptionText(responseData, false),
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -170,6 +170,69 @@ func (s *SlackBridge) slackTSToTime(slackTimestamp string) (slackTime time.Time)
 	return slackTime
 }
 
+func (s *SlackBridge) generateModalRequest(channelID string, threadTS string, user string) slack.ModalViewRequest {
+	// Create a ModalViewRequest with a header and two inputs
+	titleText := slack.NewTextBlockObject("plain_text", "Grab a thread", false, false)
+	closeText := slack.NewTextBlockObject("plain_text", "Cancel", false, false)
+	submitText := slack.NewTextBlockObject("plain_text", "Submit", false, false)
+
+	// === TEXT BLOCK AT THE TOP OF MESSAGE ===
+	savingMessage := "Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones."
+	messageText := slack.NewSectionBlock(
+		slack.NewTextBlockObject("mrkdwn", savingMessage, false, false), nil, nil,
+	)
+
+	// Article Title
+	articleTitleText := slack.NewTextBlockObject("plain_text", "Enter Article Title", false, false)
+	articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
+	articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "articleTitle")
+	articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
+
+	// Section title
+	sectionTitleText := slack.NewTextBlockObject("plain_text", "Enter Section Title", false, false)
+	sectionTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Section Title", false, false)
+	sectionTitleElement := slack.NewPlainTextInputBlockElement(sectionTitlePlaceholder, "sectionTitle")
+	sectionTitle := slack.NewInputBlock("Section Title", sectionTitleText, nil, sectionTitleElement)
+
+	// The checkbox. Why I need like 6 fucking lines for this is beyond me.
+	clobberCheckboxOptionText := slack.NewTextBlockObject(
+		"plain_text", "Overwrite existing content", false, false,
+	)
+	clobberWarning := "By selecting this, any data already present under the provided article/section will be ERASED."
+	clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", clobberWarning, false, false)
+	clobberCheckbox := slack.NewCheckboxGroupsBlockElement(
+		"clobber",
+		slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText),
+	)
+	clobberBox := slack.NewInputBlock(
+		"Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox,
+	)
+	// Ooops all optional
+
+	articleTitle.Optional = true // People shouldn't write go
+	sectionTitle.Optional = true // People shouldn't write go
+	clobberBox.Optional = true   // People shouldn't write go
+
+	blocks := slack.Blocks{
+		BlockSet: []slack.Block{
+			messageText,
+			articleTitle,
+			sectionTitle,
+			clobberBox,
+		},
+	}
+
+	var modalRequest slack.ModalViewRequest
+	modalRequest.Type = slack.ViewType("modal")
+	modalRequest.Title = titleText
+	modalRequest.Close = closeText
+	modalRequest.Submit = submitText
+	modalRequest.Blocks = blocks
+	modalRequest.ExternalID = fmt.Sprintf("%s,%s,%s", channelID, threadTS, user)
+	fmt.Println("ExternalID", modalRequest.ExternalID)
+	return modalRequest
+}
+
 func (s *SlackBridge) createBlockMessage() slack.MsgOption {
 	// Define blocks
 	// === TEXT BLOCK AT THE TOP OF MESSAGE ===
@@ -239,11 +302,11 @@ func (s *SlackBridge) messageBlocksToMarkdown(message slack.Message) (md string,
 	fmt.Println("Chom")
 	fmt.Println(j.GetObjectArray(""))
 
-		/*
-	// Note there might be a better way to get this info, but I figured this structure out from looking at the json response
-	firstName := i.View.State.Values["First Name"]["firstName"].Value
-	lastName := i.View.State.Values["Last Name"]["lastName"].Value
-		*/
+	/*
+		// Note there might be a better way to get this info, but I figured this structure out from looking at the json response
+		firstName := i.View.State.Values["First Name"]["firstName"].Value
+		lastName := i.View.State.Values["Last Name"]["lastName"].Value
+	*/
 
 	return md, nil
 }
