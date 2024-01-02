@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
@@ -194,76 +193,4 @@ func interactionResp() func(c *gin.Context) {
 			}
 		}
 	}
-}
-
-func (s *SlackBridge) handleMessageAction(payload slack.InteractionCallback) (err error) {
-	modalRequest := s.generateModalRequest(payload.Channel.ID, payload.Message.ThreadTimestamp, payload.User.ID)
-	_, err = s.api.OpenView(payload.TriggerID, modalRequest)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.InteractionCallback, instance Instance) (err error) {
-	articleTitle := payload.View.State.Values["Article Title"]["articleTitle"].Value
-	sectionTitle := payload.View.State.Values["Section Title"]["sectionTitle"].Value
-	clobberValue := payload.View.State.Values["Clobber"]["clobber"].SelectedOptions[0].Value
-	clobber := false
-	if clobberValue == "confirmed" {
-		clobber = true
-	}
-
-	// Get the Thread into a common form
-	fmt.Println("Channel ID and Thread TS: ", payload.Channel.ID, payload.Message.ThreadTimestamp)
-	messageContext := strings.Split(payload.View.ExternalID, ",")
-	channelID := messageContext[0]
-	threadTS := messageContext[1]
-	userID := messageContext[2]
-
-	thread, err := s.getThread(channelID, threadTS)
-	if err != nil {
-		return err
-	}
-
-	// If we didn't get a title, then grab and truncate the first message
-	if len(articleTitle) == 0 {
-		articleTitle = thread.getTitle()
-	}
-
-	// Ack so we don't die when eating large messages
-	c.String(http.StatusOK, "")
-
-	// Figure out what kind of Wiki this org has
-	var w WikiBridge
-	if len(instance.MediaWikiURL) > 0 {
-		wiki, err := NewMediaWikiBridge(instance)
-		w = &wiki // Forgive me father for I have sinned
-		if err != nil {
-			return err
-		}
-	}
-
-	// Post Thread to Wiki
-	transcript := w.generateTranscript(thread)
-	url, err := w.uploadArticle(articleTitle, sectionTitle, transcript, clobber)
-
-	// Let the user know where the page is
-	responseData := fmt.Sprintf(
-		`Article saved! You can find it posted at: %s`,
-		url,
-	)
-
-	_, err = s.api.PostEphemeral(
-		channelID,
-		userID,
-		slack.MsgOptionTS(threadTS),
-		slack.MsgOptionText(responseData, false),
-	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
