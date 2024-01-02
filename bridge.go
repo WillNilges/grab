@@ -2,6 +2,7 @@ package main
 
 /*
 // FIXME: Can/should I create a ChatBridge interface? Methinkso, but menoknowhow?
+// Need variadic functions? This is probably a stupid idea.
 type ChatBridge interface {
 	getThread() Thread
 	saveImage(url string)

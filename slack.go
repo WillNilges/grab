@@ -3,12 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/antonholmquist/jason"
+	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
 
 	"github.com/google/uuid"
@@ -21,41 +23,6 @@ type SlackBridge struct {
 func NewSlackBridge(instance Instance) (s SlackBridge) {
 	s.api = slack.New(instance.SlackAccessToken)
 	return s
-}
-
-func (s *SlackBridge) parseSlackForm(p []byte) (articleTitle string, articleSection string, clobber bool, err error) {
-	v, err := jason.NewObjectFromBytes(p)
-	if err != nil {
-		log.Println("Error parsing slack form: ", err)
-		return "", "", false, err
-	}
-
-	// Get user-provided article title
-	articleTitle, err = v.GetString("values", "Article Title", "article_title", "value")
-	if err != nil {
-		log.Printf("Couldn't parse article title: %s. Maybe we didn't get one?\n", err)
-	}
-
-	// Get user-provided article section
-	articleSection, err = v.GetString("values", "Article Section", "article_section", "value")
-	if err != nil {
-		log.Printf("Couldn't parse section title: %s. Maybe we didn't get one?\n", err)
-	}
-
-	// Check if we should clobber or not
-	clobber = false
-	clobberBox, err := v.GetObjectArray("values", "Clobber", "clobber", "selected_options")
-	if err != nil {
-		log.Println("Couldn't parse clobber checkbox array: ", err)
-	} else if len(clobberBox) == 1 { // We should only ever get one value here (god I hate this language)
-		clobberConfirmed, err := clobberBox[0].GetString("value")
-		if err != nil {
-			log.Println("Couldn't parse clobber checkbox value: ", err)
-		}
-		clobber = strings.Contains("confirmed", clobberConfirmed)
-	}
-
-	return articleTitle, articleSection, clobber, nil
 }
 
 func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Thread, err error) {
@@ -126,6 +93,78 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 	return thread, nil
 }
 
+// Interaction Handlers
+
+func (s *SlackBridge) handleMessageAction(payload slack.InteractionCallback) (err error) {
+	modalRequest := s.generateTitleFormRequest(payload.Channel.ID, payload.Message.ThreadTimestamp, payload.User.ID)
+	_, err = s.api.OpenView(payload.TriggerID, modalRequest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.InteractionCallback, instance Instance) (err error) {
+	articleTitle := payload.View.State.Values["Article Title"]["articleTitle"].Value
+	sectionTitle := payload.View.State.Values["Section Title"]["sectionTitle"].Value
+	clobberValue := payload.View.State.Values["Clobber"]["clobber"].SelectedOptions[0].Value
+	clobber := false
+	if clobberValue == "confirmed" {
+		clobber = true
+	}
+
+	// Get the Thread into a common form
+	messageContext := strings.Split(payload.View.ExternalID, ",")
+	channelID := messageContext[0]
+	threadTS := messageContext[1]
+	userID := messageContext[2]
+
+	thread, err := s.getThread(channelID, threadTS)
+	if err != nil {
+		return err
+	}
+
+	// If we didn't get a title, then grab and truncate the first message
+	if len(articleTitle) == 0 {
+		articleTitle = thread.getTitle()
+	}
+
+	// If all that worked, ACK so we don't die when eating large messages
+	c.String(http.StatusOK, "")
+
+	// Figure out what kind of Wiki this org has
+	var w WikiBridge
+	if len(instance.MediaWikiURL) > 0 {
+		wiki, err := NewMediaWikiBridge(instance)
+		w = &wiki // Forgive me father for I have sinned
+		if err != nil {
+			return err
+		}
+	}
+
+	// Post Thread to Wiki
+	transcript := w.generateTranscript(thread)
+	url, err := w.uploadArticle(articleTitle, sectionTitle, transcript, clobber)
+
+	// Let the user know where the page is
+	responseData := fmt.Sprintf("Article saved! You can find it at: %s", url)
+
+	_, err = s.api.PostEphemeral(
+		channelID,
+		userID,
+		slack.MsgOptionTS(threadTS),
+		slack.MsgOptionText(responseData, false),
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Utility Functions
+
 func (s *SlackBridge) getConversationReplies(channelID string, threadTs string) (conversation []slack.Message, err error) {
 	// Get the conversation history
 	params := slack.GetConversationRepliesParameters{
@@ -170,59 +209,67 @@ func (s *SlackBridge) slackTSToTime(slackTimestamp string) (slackTime time.Time)
 	return slackTime
 }
 
-func (s *SlackBridge) createBlockMessage() slack.MsgOption {
-	// Define blocks
+func (s *SlackBridge) generateTitleFormRequest(channelID string, threadTS string, user string) slack.ModalViewRequest {
+	// Create a ModalViewRequest with a header and two inputs
+	titleText := slack.NewTextBlockObject("plain_text", "Grab a thread", false, false)
+	closeText := slack.NewTextBlockObject("plain_text", "Cancel", false, false)
+	submitText := slack.NewTextBlockObject("plain_text", "Submit", false, false)
+
 	// === TEXT BLOCK AT THE TOP OF MESSAGE ===
+	savingMessage := "Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones."
 	messageText := slack.NewSectionBlock(
-		slack.NewTextBlockObject(
-			"mrkdwn",
-			"Saving thread transcript! Please provide some article info. You can specify existing articles and sections, or come up with new ones.",
-			false,
-			false,
-		),
-		nil,
-		nil,
+		slack.NewTextBlockObject("mrkdwn", savingMessage, false, false), nil, nil,
 	)
 
-	// If you change this section, the JSON that selects things out of the Raw State will break.
-	// === ARTICLE TITLE INPUT ===
-	articleTitleText := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
-	articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, Provide a title for this article", false, false)
-	articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "article_title")
-	// Notice that blockID is a unique identifier for a block
+	// Article Title
+	articleTitleText := slack.NewTextBlockObject("plain_text", "Enter Article Title", false, false)
+	articleTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Article Title", false, false)
+	articleTitleElement := slack.NewPlainTextInputBlockElement(articleTitlePlaceholder, "articleTitle")
 	articleTitle := slack.NewInputBlock("Article Title", articleTitleText, nil, articleTitleElement)
 
-	// === ARTICLE SECTION INPUT ===
-	articleSectionText := slack.NewTextBlockObject("plain_text", "Article Section", false, false)
-	articleSectionPlaceholder := slack.NewTextBlockObject("plain_text", "Optionally, place it under a section", false, false)
-	articleSectionElement := slack.NewPlainTextInputBlockElement(articleSectionPlaceholder, "article_section")
-	// Notice that blockID is a unique identifier for a block
-	articleSection := slack.NewInputBlock("Article Section", articleSectionText, nil, articleSectionElement)
+	// Section title
+	sectionTitleText := slack.NewTextBlockObject("plain_text", "Enter Section Title", false, false)
+	sectionTitlePlaceholder := slack.NewTextBlockObject("plain_text", "Section Title", false, false)
+	sectionTitleElement := slack.NewPlainTextInputBlockElement(sectionTitlePlaceholder, "sectionTitle")
+	sectionTitle := slack.NewInputBlock("Section Title", sectionTitleText, nil, sectionTitleElement)
 
-	// === CLOBBER CHECKBOX ===
-	clobberCheckboxOptionText := slack.NewTextBlockObject("plain_text", "Overwrite existing content", false, false)
-	clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", "By selecting this, any data already present under the provided article/section will be ERASED.", false, false)
-	clobberCheckbox := slack.NewCheckboxGroupsBlockElement("clobber", slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText))
-	clobberBox := slack.NewInputBlock("Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox)
-
-	// === CONFIRM BUTTON ===
-	confirmButton := slack.NewButtonBlockElement(AppendThreadConfirm, "Confirm", slack.NewTextBlockObject("plain_text", "Confirm", false, false))
-	confirmButton.Style = "primary"
-
-	// === CANCEL BUTTON ===
-	cancelButton := slack.NewButtonBlockElement(AppendThreadCancel, "Cancel", slack.NewTextBlockObject("plain_text", "Cancel", false, false))
-
-	buttons := slack.NewActionBlock("", confirmButton, cancelButton)
-
-	blockMsg := slack.MsgOptionBlocks(
-		messageText,
-		articleTitle,
-		articleSection,
-		clobberBox,
-		buttons,
+	// The checkbox. Why I need like 6 fucking lines for this is beyond me.
+	clobberCheckboxOptionText := slack.NewTextBlockObject(
+		"plain_text", "Overwrite existing content", false, false,
 	)
+	clobberWarning := "By selecting this, any data already present under the provided article/section will be ERASED."
+	clobberCheckboxDescriptionText := slack.NewTextBlockObject("plain_text", clobberWarning, false, false)
+	clobberCheckbox := slack.NewCheckboxGroupsBlockElement(
+		"clobber",
+		slack.NewOptionBlockObject("confirmed", clobberCheckboxOptionText, clobberCheckboxDescriptionText),
+	)
+	clobberBox := slack.NewInputBlock(
+		"Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox,
+	)
+	// Ooops all optional
 
-	return blockMsg
+	articleTitle.Optional = true // People shouldn't write go
+	sectionTitle.Optional = true // People shouldn't write go
+	clobberBox.Optional = true   // People shouldn't write go
+
+	blocks := slack.Blocks{
+		BlockSet: []slack.Block{
+			messageText,
+			articleTitle,
+			sectionTitle,
+			clobberBox,
+		},
+	}
+
+	var modalRequest slack.ModalViewRequest
+	modalRequest.Type = slack.ViewType("modal")
+	modalRequest.Title = titleText
+	modalRequest.Close = closeText
+	modalRequest.Submit = submitText
+	modalRequest.Blocks = blocks
+	modalRequest.ExternalID = fmt.Sprintf("%s,%s,%s", channelID, threadTS, user)
+	fmt.Println("ExternalID", modalRequest.ExternalID)
+	return modalRequest
 }
 
 func (s *SlackBridge) messageBlocksToMarkdown(message slack.Message) (md string, err error) {
@@ -239,11 +286,11 @@ func (s *SlackBridge) messageBlocksToMarkdown(message slack.Message) (md string,
 	fmt.Println("Chom")
 	fmt.Println(j.GetObjectArray(""))
 
-		/*
-	// Note there might be a better way to get this info, but I figured this structure out from looking at the json response
-	firstName := i.View.State.Values["First Name"]["firstName"].Value
-	lastName := i.View.State.Values["Last Name"]["lastName"].Value
-		*/
+	/*
+		// Note there might be a better way to get this info, but I figured this structure out from looking at the json response
+		firstName := i.View.State.Values["First Name"]["firstName"].Value
+		lastName := i.View.State.Values["Last Name"]["lastName"].Value
+	*/
 
 	return md, nil
 }
