@@ -5,11 +5,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/antonholmquist/jason"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
 
@@ -64,10 +64,7 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 
 		m.Timestamp = s.slackTSToTime(message.Timestamp)
 		m.Author = conversationUsers[message.User]
-		m.Text = message.Text
-
-		// TODO: Parse Slack Block Bullshit to Markdown
-		// m.Text, err = s.messageBlocksToMarkdown(message)
+		m.Text = s.mrkdwnToMarkdown(message.Text)
 
 		// Check for attachements
 		for _, attachment := range message.Attachments {
@@ -108,10 +105,14 @@ func (s *SlackBridge) handleMessageAction(payload slack.InteractionCallback) (er
 func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.InteractionCallback, instance Instance) (err error) {
 	articleTitle := payload.View.State.Values["Article Title"]["articleTitle"].Value
 	sectionTitle := payload.View.State.Values["Section Title"]["sectionTitle"].Value
-	clobberValue := payload.View.State.Values["Clobber"]["clobber"].SelectedOptions[0].Value
-	clobber := false
-	if clobberValue == "confirmed" {
-		clobber = true
+	var clobber bool
+	if len(payload.View.State.Values["Clobber"]["clobber"].SelectedOptions) == 0 {
+		clobber = false
+	} else {
+		clobberValue := payload.View.State.Values["Clobber"]["clobber"].SelectedOptions[0].Value
+		if clobberValue == "confirmed" {
+			clobber = true
+		}
 	}
 
 	// Get the Thread into a common form
@@ -268,29 +269,37 @@ func (s *SlackBridge) generateTitleFormRequest(channelID string, threadTS string
 	modalRequest.Submit = submitText
 	modalRequest.Blocks = blocks
 	modalRequest.ExternalID = fmt.Sprintf("%s,%s,%s", channelID, threadTS, user)
-	fmt.Println("ExternalID", modalRequest.ExternalID)
 	return modalRequest
 }
 
-func (s *SlackBridge) messageBlocksToMarkdown(message slack.Message) (md string, err error) {
-	jBytes, _ := message.Blocks.MarshalJSON()
-	//fmt.Println(string(jBytes))
+// REALLY SHITTY parser from ChatGPT. I spent some time fucking around with the 
+// Blocks and have concluded that writing a parser for that shit is a whole other
+// project in and of itself. Maybe someday. For now, my shit will probably be
+// vulnerable to regex-based attacks.
+func (s *SlackBridge) mrkdwnToMarkdown(input string) string {
+	// Handle bold text
+	boldRegex := regexp.MustCompile(`\*(.*?)\*`)
+	input = boldRegex.ReplaceAllString(input, "**$1**")
 
-	j, err := jason.NewObjectFromBytes(jBytes)
-	if err != nil {
-		log.Println("error saving to wiki: ", err)
-		//c.String(http.StatusInternalServerError, "error saving to wiki: %s", err.Error())
-		return "", err
-	}
+	// Handle italic text
+	italicRegex := regexp.MustCompile(`_(.*?)_`)
+	input = italicRegex.ReplaceAllString(input, "*$1*")
 
-	fmt.Println("Chom")
-	fmt.Println(j.GetObjectArray(""))
+	// Handle strikethrough text
+	strikeRegex := regexp.MustCompile(`~(.*?)~`)
+	input = strikeRegex.ReplaceAllString(input, "~~$1~~")
 
-	/*
-		// Note there might be a better way to get this info, but I figured this structure out from looking at the json response
-		firstName := i.View.State.Values["First Name"]["firstName"].Value
-		lastName := i.View.State.Values["Last Name"]["lastName"].Value
-	*/
+	// Handle code blocks
+	codeRegex := regexp.MustCompile("`([^`]+)`")
+	input = codeRegex.ReplaceAllString(input, "`$1`")
 
-	return md, nil
+	// Handle links with labels
+	linkWithLabelRegex := regexp.MustCompile(`<([^|]+)\|([^>]+)>`)
+	input = linkWithLabelRegex.ReplaceAllString(input, "[$2]($1)")
+
+	// Handle links without labels
+	linkWithoutLabelRegex := regexp.MustCompile(`<([^>]+)>`)
+	input = linkWithoutLabelRegex.ReplaceAllString(input, "[$1]($1)")
+
+	return input
 }

@@ -7,6 +7,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -o grab .
 
 FROM alpine:latest
 
+RUN apk add pandoc
+
 WORKDIR /
 
 COPY --from=builder /build/grab ./

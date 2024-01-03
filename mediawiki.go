@@ -10,6 +10,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -50,7 +51,12 @@ func (w *MediaWikiBridge) generateTranscript(thread Thread) (transcript string) 
 	transcript += "Conversation begins at " + transcriptBegin + ".\n\n"
 
 	for _, m := range thread.Messages {
-		transcript += m.Author + ": " + m.Text + "\n\n"
+		mu, err := w.markdownToMediaWikiMarkup(m.Text)
+		if err != nil {
+			log.Println("Warning: Failed to convert to MediaWiki markup: ", err)
+			mu = m.Text // If we can't convert the line, then just use it as-is.
+		}
+		transcript += m.Author + ": " + mu + "\n\n"
 
 		// Files will be handled in the wiki. We will download them over in the
 		// chat bridge and then we will, on each message, have the path and title
@@ -339,4 +345,28 @@ func (w *MediaWikiBridge) findSectionId(title string, section string) (id string
 	}
 
 	return "", nil
+}
+
+func (w *MediaWikiBridge) markdownToMediaWikiMarkup(md string) (mu string, err error) {
+	// Create a buffer to store the command output
+	var outputBuffer bytes.Buffer
+
+	// Set up the Pandoc command
+	cmd := exec.Command("pandoc", "-f", "markdown", "-t", "mediawiki")
+
+	// Pipe the input string to Pandoc's standard input
+	cmd.Stdin = bytes.NewBufferString(md)
+
+	// Set Pandoc's standard output to our buffer
+	cmd.Stdout = &outputBuffer
+
+	// Run the Pandoc command
+	err = cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("failed to run Pandoc: %v", err)
+	}
+
+	// Convert the buffer to a string and return
+	mu = outputBuffer.String()
+	return mu, nil
 }
