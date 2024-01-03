@@ -1,8 +1,9 @@
 FROM docker.io/golang:1.21 as builder
 
 WORKDIR /build
-COPY go.mod go.sum *.go ./
-RUN go get -d .
+COPY go.mod go.sum .
+RUN go mod download
+COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o grab .
 
 FROM alpine:latest

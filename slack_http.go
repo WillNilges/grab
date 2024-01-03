@@ -26,6 +26,8 @@ const (
 	// Block Action IDs for that Callback ID
 	AppendThreadConfirm = "append_thread_transcript_confirm"
 	AppendThreadCancel  = "append_thread_transcript_cancel"
+	// Shortcut for Grabbing a range of messages
+	AppendRange = "append_range"
 )
 
 // Middleware to verify integrity of API calls from Slack
@@ -160,8 +162,10 @@ func interactionResp() func(c *gin.Context) {
 			return
 		}
 
+		fmt.Println(payload.Type)
+
 		// If it's not a modal action, we don't care.
-		validPayloads := []string{"view_submission", "message_action"}
+		validPayloads := []string{"shortcut", "view_submission", "message_action"}
 		if slices.Contains(validPayloads, string(payload.Type)) == false {
 			log.Println("Invalid payload type: ", payload.Type)
 			c.String(http.StatusBadRequest, "Invalid payload type: %s", payload.Type)
@@ -181,6 +185,12 @@ func interactionResp() func(c *gin.Context) {
 		switch payload.Type {
 		case "message_action":
 			err := s.handleMessageAction(payload)
+			if err != nil {
+				fmt.Printf("Error handling message_action: %s", err)
+				c.String(http.StatusInternalServerError, "Error handling message_action: %s", err.Error())
+			}
+		case "shortcut":
+			err := s.handleShortcut(payload)
 			if err != nil {
 				fmt.Printf("Error handling message_action: %s", err)
 				c.String(http.StatusInternalServerError, "Error handling message_action: %s", err.Error())

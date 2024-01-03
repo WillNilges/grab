@@ -25,12 +25,28 @@ func NewSlackBridge(instance Instance) (s SlackBridge) {
 	return s
 }
 
+func (s *SlackBridge) getRange(channelID string, startTs string, endTs string) (thread Thread, err error) {
+	conversation, err := s.getConversationHistory(channelID, startTs, endTs)
+	if err != nil {
+		return Thread{}, err
+	}
+    length := len(conversation)
+    for i := 0; i < length/2; i++ {
+        conversation[i], conversation[length-i-1] = conversation[length-i-1], conversation[i]
+    }
+	return s.conversationToThread(conversation)
+}
+
 func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Thread, err error) {
 	conversation, err := s.getConversationReplies(channelID, threadTs)
 	if err != nil {
 		return Thread{}, err
 	}
+	return s.conversationToThread(conversation)
+}
 
+
+func (s *SlackBridge) conversationToThread(conversation []slack.Message) (thread Thread, err error) {
 	// Get the bot's userID
 	authTestResponse, err := s.api.AuthTest()
 	if err != nil {
@@ -38,7 +54,7 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 	}
 
 	// The ThreadTS is when this party started
-	thread.Timestamp = s.slackTSToTime(threadTs)
+	thread.Timestamp = s.slackTSToTime(conversation[0].Timestamp)
 
 	conversationUsers := map[string]string{}
 	for _, message := range conversation {
@@ -102,6 +118,16 @@ func (s *SlackBridge) handleMessageAction(payload slack.InteractionCallback) (er
 	return nil
 }
 
+func (s *SlackBridge) handleShortcut(payload slack.InteractionCallback) (err error) {
+	modalRequest := s.generateRangeTitleFormRequest(payload.Channel.ID, payload.Message.ThreadTimestamp, payload.User.ID)
+	_, err = s.api.OpenView(payload.TriggerID, modalRequest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.InteractionCallback, instance Instance) (err error) {
 	articleTitle := payload.View.State.Values["Article Title"]["articleTitle"].Value
 	sectionTitle := payload.View.State.Values["Section Title"]["sectionTitle"].Value
@@ -115,13 +141,25 @@ func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.Interac
 		}
 	}
 
-	// Get the Thread into a common form
+	// Stuff that exists if we're doing a Thread Grab
 	messageContext := strings.Split(payload.View.ExternalID, ",")
 	channelID := messageContext[0]
 	threadTS := messageContext[1]
 	userID := messageContext[2]
 
-	thread, err := s.getThread(channelID, threadTS)
+	// Get the Thread into a common form
+	var thread Thread
+	if _, ok := payload.View.State.Values["Start Link"]; ok {
+		// Check if this is a range request
+		startLink := payload.View.State.Values["Start Link"]["startLink"].Value
+		endLink := payload.View.State.Values["End Link"]["endLink"].Value
+		startTS := s.extractTS(startLink)
+		endTS := s.extractTS(endLink)
+		channelID = s.extractChannelID(startLink)
+		thread, err = s.getRange(channelID, startTS, endTS)
+	} else {
+		thread, err = s.getThread(channelID, threadTS)
+	}
 	if err != nil {
 		return err
 	}
@@ -151,12 +189,20 @@ func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.Interac
 	// Let the user know where the page is
 	responseData := fmt.Sprintf("Article saved! You can find it at: %s", url)
 
-	_, err = s.api.PostEphemeral(
-		channelID,
-		userID,
-		slack.MsgOptionTS(threadTS),
-		slack.MsgOptionText(responseData, false),
-	)
+	if len(threadTS) > 0 {
+		_, err = s.api.PostEphemeral(
+			channelID,
+			userID,
+			slack.MsgOptionTS(threadTS),
+			slack.MsgOptionText(responseData, false),
+		)
+	} else {
+		_, err = s.api.PostEphemeral(
+			channelID,
+			userID,
+			slack.MsgOptionText(responseData, false),
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -165,6 +211,21 @@ func (s *SlackBridge) handleViewSubmission(c *gin.Context, payload slack.Interac
 }
 
 // Utility Functions
+
+func (s *SlackBridge) getConversationHistory(channelID string, startTs string, endTs string) (conversation []slack.Message, err error) {
+	params := &slack.GetConversationHistoryParameters{
+		ChannelID: channelID,
+		Oldest:    startTs,
+		Latest:    endTs,
+		Inclusive: true,
+	}
+
+	history, err := s.api.GetConversationHistory(params)
+	if err != nil {
+		log.Fatalf("Error getting conversation history: %s", err)
+	}
+	return history.Messages, nil
+}
 
 func (s *SlackBridge) getConversationReplies(channelID string, threadTs string) (conversation []slack.Message, err error) {
 	// Get the conversation history
@@ -197,6 +258,19 @@ func (s *SlackBridge) getFile(file slack.File) (path string, err error) {
 	return path, nil
 }
 
+// Quick and dirty way to get the Slack TS out of a link to a Slack message 
+func (s *SlackBridge) extractTS(link string) (ts string) {
+	ts = strings.Split(link, "/p")[1]
+	ts = ts[:len(ts)-6] + "." + ts[len(ts)-6:]
+	return ts
+}
+
+// Quick and dirty way to get the Slack ChannelID out of a link to a Slack message 
+func (s *SlackBridge) extractChannelID(link string) (cid string) {
+	cid = strings.Split(link, "/")[4]
+	return cid
+}
+
 func (s *SlackBridge) slackTSToTime(slackTimestamp string) (slackTime time.Time) {
 	// Convert the Slack timestamp to a Unix timestamp (float64)
 	slackUnixTimestamp, err := strconv.ParseFloat(strings.Split(slackTimestamp, ".")[0], 64)
@@ -208,6 +282,38 @@ func (s *SlackBridge) slackTSToTime(slackTimestamp string) (slackTime time.Time)
 	// Create a time.Time object from the Unix timestamp (assuming UTC time zone)
 	slackTime = time.Unix(int64(slackUnixTimestamp), 0)
 	return slackTime
+}
+
+func (s *SlackBridge) generateRangeTitleFormRequest(channelID string, threadTS string, user string) slack.ModalViewRequest {
+	modalRequest := s.generateTitleFormRequest(channelID, threadTS, user)
+
+	// Start Link
+	startLinkText := slack.NewTextBlockObject("plain_text", "Enter Start Link", false, false)
+	startLinkPlaceholder := slack.NewTextBlockObject("plain_text", "Start Link", false, false)
+	startLinkElement := slack.NewPlainTextInputBlockElement(startLinkPlaceholder, "startLink")
+	startLink := slack.NewInputBlock("Start Link", startLinkText, nil, startLinkElement)
+
+	// End Link
+	endLinkText := slack.NewTextBlockObject("plain_text", "Enter End Link", false, false)
+	endLinkPlaceholder := slack.NewTextBlockObject("plain_text", "End Link", false, false)
+	endLinkElement := slack.NewPlainTextInputBlockElement(endLinkPlaceholder, "endLink")
+	endLink := slack.NewInputBlock("End Link", endLinkText, nil, endLinkElement)
+
+	blocks := slack.Blocks{
+		BlockSet: []slack.Block{
+			modalRequest.Blocks.BlockSet[0],
+			startLink,
+			endLink,
+		},
+	}
+	for _, b := range modalRequest.Blocks.BlockSet[1:] {
+		blocks.BlockSet = append(blocks.BlockSet, b)
+	}
+	modalRequest.Blocks = blocks
+
+	modalRequest.Title = slack.NewTextBlockObject("plain_text", "Grab a range of messages", false, false)
+
+	return modalRequest
 }
 
 func (s *SlackBridge) generateTitleFormRequest(channelID string, threadTS string, user string) slack.ModalViewRequest {
@@ -247,11 +353,11 @@ func (s *SlackBridge) generateTitleFormRequest(channelID string, threadTS string
 	clobberBox := slack.NewInputBlock(
 		"Clobber", slack.NewTextBlockObject(slack.PlainTextType, " ", false, false), nil, clobberCheckbox,
 	)
-	// Ooops all optional
 
-	articleTitle.Optional = true // People shouldn't write go
-	sectionTitle.Optional = true // People shouldn't write go
-	clobberBox.Optional = true   // People shouldn't write go
+	// Oops all optional
+	articleTitle.Optional = true
+	sectionTitle.Optional = true
+	clobberBox.Optional = true
 
 	blocks := slack.Blocks{
 		BlockSet: []slack.Block{
