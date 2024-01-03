@@ -30,10 +30,10 @@ func (s *SlackBridge) getRange(channelID string, startTs string, endTs string) (
 	if err != nil {
 		return Thread{}, err
 	}
-    length := len(conversation)
-    for i := 0; i < length/2; i++ {
-        conversation[i], conversation[length-i-1] = conversation[length-i-1], conversation[i]
-    }
+	length := len(conversation)
+	for i := 0; i < length/2; i++ {
+		conversation[i], conversation[length-i-1] = conversation[length-i-1], conversation[i]
+	}
 	return s.conversationToThread(conversation)
 }
 
@@ -44,7 +44,6 @@ func (s *SlackBridge) getThread(channelID string, threadTs string) (thread Threa
 	}
 	return s.conversationToThread(conversation)
 }
-
 
 func (s *SlackBridge) conversationToThread(conversation []slack.Message) (thread Thread, err error) {
 	// Get the bot's userID
@@ -109,6 +108,16 @@ func (s *SlackBridge) conversationToThread(conversation []slack.Message) (thread
 // Interaction Handlers
 
 func (s *SlackBridge) handleMessageAction(payload slack.InteractionCallback) (err error) {
+	// If we didn't get a ThreadTimestamp, then bail. This command only works
+	// inside threads.
+	if len(payload.Message.ThreadTimestamp) == 0 {
+		_, err = s.api.PostEphemeral(
+			payload.Channel.ID,
+			payload.User.ID,
+			slack.MsgOptionText("'Grab thread' only works inside threads!", false),
+		)
+		return nil
+	}
 	modalRequest := s.generateTitleFormRequest(payload.Channel.ID, payload.Message.ThreadTimestamp, payload.User.ID)
 	_, err = s.api.OpenView(payload.TriggerID, modalRequest)
 	if err != nil {
@@ -258,14 +267,14 @@ func (s *SlackBridge) getFile(file slack.File) (path string, err error) {
 	return path, nil
 }
 
-// Quick and dirty way to get the Slack TS out of a link to a Slack message 
+// Quick and dirty way to get the Slack TS out of a link to a Slack message
 func (s *SlackBridge) extractTS(link string) (ts string) {
 	ts = strings.Split(link, "/p")[1]
 	ts = ts[:len(ts)-6] + "." + ts[len(ts)-6:]
 	return ts
 }
 
-// Quick and dirty way to get the Slack ChannelID out of a link to a Slack message 
+// Quick and dirty way to get the Slack ChannelID out of a link to a Slack message
 func (s *SlackBridge) extractChannelID(link string) (cid string) {
 	cid = strings.Split(link, "/")[4]
 	return cid
@@ -378,7 +387,7 @@ func (s *SlackBridge) generateTitleFormRequest(channelID string, threadTS string
 	return modalRequest
 }
 
-// REALLY SHITTY parser from ChatGPT. I spent some time fucking around with the 
+// REALLY SHITTY parser from ChatGPT. I spent some time fucking around with the
 // Blocks and have concluded that writing a parser for that shit is a whole other
 // project in and of itself. Maybe someday. For now, my shit will probably be
 // vulnerable to regex-based attacks.
