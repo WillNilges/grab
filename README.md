@@ -8,11 +8,10 @@
   <img height="300px" src="https://github.com/WillNilges/grab/blob/8aa627c6dc2e49be53e4b897033c35795fc28399/static/images/grabbit_head.png" alt="Oxford the Grabbit">
 </p>
 
-### Grab helps you preserve information.
+### Turn chat platform discussions into real documentation!
 
-Grab is a cross-platform* application that connects your messaging platform to your knowledge base. Simply ask the bot, and easily transfer knowledge generated in your messaging platform to a proper, more permanent home. Slack might be expensive, but information can be priceless!
+Grab is an application that connects your messaging platform to your knowledge base. Simply tag the bot on a thread, and easily transfer knowledge generated in your messaging platform to a proper, more permanent home. Slack might be expensive, but information can be priceless!
 
-*Not cross-platform yet lol
 
 <table>
   <tr>
@@ -54,13 +53,9 @@ Grab is a cross-platform* application that connects your messaging platform to y
 
 ### Why?
 
-I have lost count of how many times I have lost things in Slack, Discord, or any other chat platform. I ask people questions, collaborate on problems, have meetings, and generally generate a ton of useful information while solving a problem. Then, I find that I promise myself I'll write it down, and never do.
+It has been my experience that in a lot of techncial communities, people collaborate on Slack, Discord, etc, and generate a lot of useful information, but that information often does not make it into a wiki and gets lost. This app aims to lower the barrier to entry for documentation, and and help people spend less time searching and more time doing.
 
-I've also been a member of a number of communities that share this problem, or worse, either aren't aware of it, or don't care. They send information into the void, and it can be almost impossible to find it again.
-
-There are many communities out there working on incredible things, but they have poor documentation practices. Information gets lost, links get buried, and people waste time searching for them again when they may or may not even exist. This app aims to lower the barrier to entry for documentation, and and help people spend less time searching and more time doing.
-
-About a year ago, I had the idea for this project, and then a friend told me that there are already [plenty](https://www.getguru.com/) [of](https://www.backupery.com/products/backupery-for-slack/) [startups](http://landria.io/) charging people $N/seat/month or some other ludicrous amount for this kind of service. I think that's way too much, so I made my own. 
+Back in 2022, I had the idea for this project, and then a friend told me that there are already [plenty](https://www.getguru.com/) [of](https://www.backupery.com/products/backupery-for-slack/) [startups](http://landria.io/) charging people $N/seat/month or some other ludicrous amount for this kind of service. I think that's way too much, so I made my own. 
 
 ### Status
 
